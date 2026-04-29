@@ -2,6 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { queryOne, queryAll, run, transaction } from '@/lib/db';
 import { broadcast } from '@/lib/events';
 import { notifyLearner } from '@/lib/learner';
+import { getMissionControlUrl } from '@/lib/config';
+import { pickDynamicAgent } from '@/lib/task-governance';
 import type { Convoy, ConvoySubtask, Task, ConvoyStatus, DecompositionStrategy } from '@/lib/types';
 
 interface CreateSubtaskInput {
@@ -25,7 +27,7 @@ interface CreateConvoyInput {
 export function createConvoy(input: CreateConvoyInput): Convoy {
   const { parentTaskId, name, strategy, decompositionSpec, subtasks = [] } = input;
 
-  return transaction(() => {
+  const convoy = transaction(() => {
     const task = queryOne<Task>('SELECT * FROM tasks WHERE id = ?', [parentTaskId]);
     if (!task) throw new Error(`Task ${parentTaskId} not found`);
     if (task.is_subtask) throw new Error('Cannot create a convoy from a sub-task');
@@ -85,6 +87,13 @@ export function createConvoy(input: CreateConvoyInput): Convoy {
 
     return convoy;
   });
+
+  // Auto-drain first wave — fire-and-forget, does not block convoy creation
+  dispatchReadyConvoySubtasks(convoy.id).catch(err =>
+    console.error('[Convoy] initial dispatch failed:', err)
+  );
+
+  return convoy;
 }
 
 /**
@@ -248,6 +257,94 @@ export function getDispatchableSubtasks(convoyId: string): ConvoySubtask[] {
     const deps = st.depends_on ? JSON.parse(st.depends_on as unknown as string) as string[] : [];
     return deps.every(depId => doneTaskIds.has(depId));
   });
+}
+
+/**
+ * Dispatch all ready convoy subtasks (DAG-aware, MAX_PARALLEL=5).
+ * Pure in-process call — no HTTP self-call. Callable from any server-side context.
+ * All sync DB writes happen before any awaits, making concurrent calls safe.
+ */
+export async function dispatchReadyConvoySubtasks(convoyId: string): Promise<{
+  dispatched: number;
+  total: number;
+  results: Array<{ taskId: string; success: boolean; error?: string }>;
+}> {
+  const convoy = queryOne<Convoy>('SELECT * FROM convoys WHERE id = ?', [convoyId]);
+  if (!convoy || convoy.status !== 'active') {
+    return { dispatched: 0, total: 0, results: [] };
+  }
+
+  const allDispatchable = getDispatchableSubtasks(convoyId);
+  if (allDispatchable.length === 0) {
+    return { dispatched: 0, total: 0, results: [] };
+  }
+
+  const MAX_PARALLEL = 5;
+  const currentlyActive = queryAll<{ id: string }>(
+    `SELECT t.id FROM convoy_subtasks cs JOIN tasks t ON cs.task_id = t.id
+     WHERE cs.convoy_id = ? AND t.status IN ('assigned', 'in_progress', 'testing', 'verification')`,
+    [convoyId]
+  ).length;
+  const slots = Math.max(0, MAX_PARALLEL - currentlyActive);
+  const toDispatch = allDispatchable.slice(0, slots);
+
+  if (toDispatch.length === 0) {
+    return { dispatched: 0, total: 0, results: [] };
+  }
+
+  // Auto-assign agents and mark as assigned — all sync writes before any awaits
+  const readyTaskIds: string[] = [];
+  for (const subtask of toDispatch) {
+    const task = queryOne<Task>('SELECT * FROM tasks WHERE id = ?', [subtask.task_id]);
+    if (!task) continue;
+
+    let agentId = task.assigned_agent_id;
+    if (!agentId) {
+      const picked = pickDynamicAgent(subtask.task_id, 'builder');
+      if (picked) {
+        agentId = picked.id;
+        run("UPDATE tasks SET assigned_agent_id = ?, updated_at = datetime('now') WHERE id = ?", [agentId, subtask.task_id]);
+      }
+    }
+
+    if (!agentId) continue;
+
+    run("UPDATE tasks SET status = 'assigned', updated_at = datetime('now') WHERE id = ?", [subtask.task_id]);
+    readyTaskIds.push(subtask.task_id);
+  }
+
+  if (readyTaskIds.length === 0) {
+    return { dispatched: 0, total: toDispatch.length, results: [] };
+  }
+
+  // Async per-subtask dispatch via the existing dispatch route
+  const missionControlUrl = getMissionControlUrl();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (process.env.MC_API_TOKEN) {
+    headers['Authorization'] = `Bearer ${process.env.MC_API_TOKEN}`;
+  }
+
+  const results: Array<{ taskId: string; success: boolean; error?: string }> = [];
+  for (const taskId of readyTaskIds) {
+    try {
+      const res = await fetch(`${missionControlUrl}/api/tasks/${taskId}/dispatch`, {
+        method: 'POST',
+        headers,
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (res.ok) {
+        results.push({ taskId, success: true });
+      } else {
+        const errorText = await res.text();
+        results.push({ taskId, success: false, error: errorText });
+      }
+    } catch (err) {
+      results.push({ taskId, success: false, error: (err as Error).message });
+    }
+  }
+
+  const dispatched = results.filter(r => r.success).length;
+  return { dispatched, total: toDispatch.length, results };
 }
 
 /**

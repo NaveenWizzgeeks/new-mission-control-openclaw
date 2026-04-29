@@ -5,7 +5,7 @@ import { broadcast } from '@/lib/events';
 import { getMissionControlUrl } from '@/lib/config';
 import { handleStageTransition, handleStageFailure, getTaskWorkflow, drainQueue, populateTaskRolesFromAgents } from '@/lib/workflow-engine';
 import { hasStageEvidence, canUseBoardOverride, auditBoardOverride, taskCanBeDone, recordLearnerOnTransition } from '@/lib/task-governance';
-import { updateConvoyProgress, checkConvoyCompletion } from '@/lib/convoy';
+import { updateConvoyProgress, checkConvoyCompletion, dispatchReadyConvoySubtasks } from '@/lib/convoy';
 import { syncGatewayAgentsToCatalog } from '@/lib/agent-catalog-sync';
 import { triggerWorkspaceMerge } from '@/lib/workspace-isolation';
 import { UpdateTaskSchema } from '@/lib/validation';
@@ -439,6 +439,10 @@ export async function PATCH(
         updateConvoyProgress(existing.convoy_id);
         if (nextStatus === 'done') {
           checkConvoyCompletion(existing.convoy_id);
+          // Auto-drain: dispatch any newly unblocked subtasks
+          dispatchReadyConvoySubtasks(existing.convoy_id).catch(err =>
+            console.error('[Convoy] auto-drain after subtask done failed:', err)
+          );
         }
       } catch (err) {
         console.error('[Convoy] progress update failed:', err);

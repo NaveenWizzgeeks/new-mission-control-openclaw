@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { createConvoy } from '@/lib/convoy';
+import { createConvoy, dispatchReadyConvoySubtasks } from '@/lib/convoy';
 import type { PlanningQuestion, PlanningCategory } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -142,7 +142,7 @@ export async function POST(
         const parsed = JSON.parse(planningSpec.planning_spec);
         const specData = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
         if (specData.convoy === true && Array.isArray(specData.subtasks) && specData.subtasks.length > 0) {
-          createConvoy({
+          const newConvoy = createConvoy({
             parentTaskId: taskId,
             name: task.title,
             strategy: 'planning',
@@ -153,6 +153,11 @@ export async function POST(
             })),
           });
           convoyCreated = true;
+          // Explicit auto-drain after planner approval (createConvoy already fires this,
+          // but the second call is a safe no-op due to sync DB writes in dispatchReadyConvoySubtasks)
+          dispatchReadyConvoySubtasks(newConvoy.id).catch(err =>
+            console.warn('[Planning Approve] convoy auto-drain failed:', err)
+          );
         }
       }
     } catch (err) {
