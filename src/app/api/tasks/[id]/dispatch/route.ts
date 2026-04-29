@@ -225,10 +225,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const spec = JSON.parse(rawTask.planning_spec);
         // planning_spec may be an object with spec_markdown, or a raw string
         const specText = typeof spec === 'string' ? spec : (spec.spec_markdown || JSON.stringify(spec, null, 2));
-        planningSpecSection = `\n---\n**📋 PLANNING SPECIFICATION:**\n${specText}\n`;
+        planningSpecSection = `\n---\n**📋 PLANNING SPECIFICATION:**\n<planning-spec>\n${specText}\n</planning-spec>\n`;
       } catch {
         // If not valid JSON, treat as plain text
-        planningSpecSection = `\n---\n**📋 PLANNING SPECIFICATION:**\n${rawTask.planning_spec}\n`;
+        planningSpecSection = `\n---\n**📋 PLANNING SPECIFICATION:**\n<planning-spec>\n${rawTask.planning_spec}\n</planning-spec>\n`;
       }
     }
 
@@ -265,7 +265,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     let knowledgeSection = '';
     try {
       const knowledge = getRelevantKnowledge(task.workspace_id, task.title);
-      knowledgeSection = formatKnowledgeForDispatch(knowledge);
+      const rawKnowledge = formatKnowledgeForDispatch(knowledge);
+      if (rawKnowledge) {
+        knowledgeSection = `<knowledge-context>\n${rawKnowledge.trim()}\n</knowledge-context>\n`;
+      }
     } catch {
       // Knowledge injection is best-effort
     }
@@ -413,14 +416,17 @@ Reply with: \`VERIFY_PASS: [summary]\` or \`VERIFY_FAIL: [what failed]\``;
     }
 
     const roleLabel = currentStage?.label || 'Task';
-    const taskMessage = `${priorityEmoji} **${isBuilder ? 'NEW TASK ASSIGNED' : `${roleLabel.toUpperCase()} STAGE — ${task.title}`}**
+    const rawMailContent = formatMailForDispatch(agent.id) || '';
+    const wrappedMailSection = rawMailContent ? `<operator-messages>\n${rawMailContent.trim()}\n</operator-messages>\n` : '';
+    const taskMessage = `[MC-DISPATCH v1 — Mission Control orchestration protocol]
+
+${priorityEmoji} **${isBuilder ? 'NEW TASK ASSIGNED' : `${roleLabel.toUpperCase()} STAGE — ${task.title}`}**
 
 **Title:** ${task.title}
-${task.description ? `**Description:** ${task.description}\n` : ''}
+${task.description ? `<task-description>\n${task.description}\n</task-description>\n` : ''}
 **Priority:** ${task.priority.toUpperCase()}
 ${task.due_date ? `**Due:** ${task.due_date}\n` : ''}
-**Task ID:** ${task.id}
-${planningSpecSection}${agentInstructionsSection}${skillsSection}${knowledgeSection}${imagesSection}${buildCheckpointContext(task.id) || ''}${formatMailForDispatch(agent.id) || ''}${repoSection}
+**Task ID:** ${task.id}${planningSpecSection}${agentInstructionsSection}${skillsSection}${knowledgeSection}${imagesSection}${buildCheckpointContext(task.id) || ''}${wrappedMailSection}${repoSection}
 ${isBuilder ? (workspaceIsolated
   ? `**\u{1F512} ISOLATED WORKSPACE:** ${taskProjectDir}\n- **Port:** ${workspacePort || 'default'} (use this for dev server, NOT the default)\n${workspaceBranchName ? `- **Branch:** ${workspaceBranchName}\n` : ''}- **IMPORTANT:** Do NOT modify files outside this workspace directory. Other agents may be working on the same project in parallel. All your work must stay within: ${taskProjectDir}\nCreate this directory if needed and save all deliverables there.\n`
   : `**OUTPUT DIRECTORY:** ${taskProjectDir}\nCreate this directory and save all deliverables there.\n`)
