@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { createConvoy, dispatchReadyConvoySubtasks } from '@/lib/convoy';
+import { createConvoy, dispatchReadyConvoySubtasks, setMissionStage } from '@/lib/convoy';
 import type { PlanningQuestion, PlanningCategory } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -153,6 +153,8 @@ export async function POST(
             })),
           });
           convoyCreated = true;
+          // Auto-advance mission_stage: planner approve + convoy ready → in_progress
+          setMissionStage(newConvoy.id, 'in_progress', 'operator');
           // Explicit auto-drain after planner approval (createConvoy already fires this,
           // but the second call is a safe no-op due to sync DB writes in dispatchReadyConvoySubtasks)
           dispatchReadyConvoySubtasks(newConvoy.id).catch(err =>

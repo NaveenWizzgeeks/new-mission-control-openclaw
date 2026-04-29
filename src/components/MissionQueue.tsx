@@ -12,6 +12,8 @@ import { formatDistanceToNow } from 'date-fns';
 
 interface MissionQueueProps {
   workspaceId?: string;
+  /** When provided, scopes the task list to subtasks of this convoy (mission drilldown). */
+  convoyId?: string;
   mobileMode?: boolean;
   isPortrait?: boolean;
 }
@@ -28,7 +30,7 @@ const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
   { id: 'done', label: 'Done', color: 'border-t-mc-accent-green' },
 ];
 
-export function MissionQueue({ workspaceId, mobileMode = false, isPortrait = true }: MissionQueueProps) {
+export function MissionQueue({ workspaceId, convoyId, mobileMode = false, isPortrait = true }: MissionQueueProps) {
   const { tasks, updateTaskStatus, addEvent } = useMissionControl();
   const [compactEmptyColumns, setCompactEmptyColumns] = useState(true);
   const unreadCounts = useUnreadCounts();
@@ -52,7 +54,15 @@ export function MissionQueue({ workspaceId, mobileMode = false, isPortrait = tru
   const [statusMoveTask, setStatusMoveTask] = useState<Task | null>(null);
   const [pendingMove, setPendingMove] = useState<{ task: Task; targetStatus: TaskStatus } | null>(null);
 
-  const getTasksByStatus = (status: TaskStatus) => tasks.filter((task) => task.status === status);
+  // When convoyId is provided (drilldown mode), show only subtasks of that convoy.
+  // workspaceId filter applies when no convoyId is set (original workspace-wide view).
+  const visibleTasks = convoyId
+    ? tasks.filter(t => t.convoy_id === convoyId && t.is_subtask)
+    : workspaceId
+      ? tasks.filter(t => t.workspace_id === workspaceId && !t.is_subtask)
+      : tasks.filter(t => !t.is_subtask);
+
+  const getTasksByStatus = (status: TaskStatus) => visibleTasks.filter((task) => task.status === status);
 
   // Active pipeline states where manual moves are dangerous
   const ACTIVE_PIPELINE_STATES: TaskStatus[] = ['assigned', 'in_progress', 'convoy_active', 'testing', 'review', 'verification'];

@@ -384,6 +384,7 @@ export interface AgentWithOpenClaw extends Agent {
 
 // Convoy types
 export type ConvoyStatus = 'active' | 'paused' | 'completing' | 'done' | 'failed';
+export type MissionStage = 'backlog' | 'planning' | 'in_progress' | 'testing' | 'done';
 export type DecompositionStrategy = 'manual' | 'ai' | 'planning';
 export type AgentHealthState = 'idle' | 'working' | 'stalled' | 'stuck' | 'zombie' | 'offline';
 export type CheckpointType = 'auto' | 'manual' | 'crash_recovery';
@@ -748,6 +749,7 @@ export interface Convoy {
   parent_task_id: string;
   name: string;
   status: ConvoyStatus;
+  mission_stage: MissionStage;
   decomposition_strategy: DecompositionStrategy;
   decomposition_spec?: string;
   total_subtasks: number;
