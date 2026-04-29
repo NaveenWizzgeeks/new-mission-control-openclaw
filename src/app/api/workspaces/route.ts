@@ -82,16 +82,21 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, description, icon } = body;
+    const { name, description, icon, path } = body;
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
+    const trimmedPath = typeof path === 'string' ? path.trim() : '';
+    if (trimmedPath && !trimmedPath.startsWith('/') && !/^[a-zA-Z]:[\\/]/.test(trimmedPath)) {
+      return NextResponse.json({ error: 'Working directory must be an absolute path' }, { status: 400 });
+    }
+
     const db = getDb();
     const id = crypto.randomUUID();
     const slug = generateSlug(name);
-    
+
     // Check if slug already exists
     const existing = db.prepare('SELECT id FROM workspaces WHERE slug = ?').get(slug);
     if (existing) {
@@ -99,9 +104,9 @@ export async function POST(request: NextRequest) {
     }
 
     db.prepare(`
-      INSERT INTO workspaces (id, name, slug, description, icon)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(id, name.trim(), slug, description || null, icon || '📁');
+      INSERT INTO workspaces (id, name, slug, description, icon, path)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, name.trim(), slug, description || null, icon || '📁', trimmedPath || null);
 
     // Clone workflow templates and bootstrap core agents for the new workspace
     cloneWorkflowTemplates(db, id);

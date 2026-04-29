@@ -84,50 +84,71 @@ export async function PATCH(
 }
 
 // DELETE /api/workspaces/[id] - Delete a workspace
+// ?force=true also deletes the workspace's bootstrapped agents (still refuses if tasks exist)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  
+  const force = request.nextUrl.searchParams.get('force') === 'true';
+
   try {
     const db = getDb();
-    
-    // Don't allow deleting the default workspace
+
     if (id === 'default') {
       return NextResponse.json({ error: 'Cannot delete the default workspace' }, { status: 400 });
     }
-    
-    // Check workspace exists
+
     const existing = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id);
     if (!existing) {
       return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
     }
-    
-    // Check if workspace has tasks or agents (cannot delete)
+
     const taskCount = db.prepare(
       'SELECT COUNT(*) as count FROM tasks WHERE workspace_id = ?'
     ).get(id) as { count: number };
-    
+
     const agentCount = db.prepare(
       'SELECT COUNT(*) as count FROM agents WHERE workspace_id = ?'
     ).get(id) as { count: number };
-    
-    if (taskCount.count > 0 || agentCount.count > 0) {
-      return NextResponse.json({ 
-        error: 'Cannot delete workspace with existing tasks or agents',
+
+    if (taskCount.count > 0) {
+      return NextResponse.json({
+        error: 'Cannot delete workspace with existing tasks. Delete tasks first.',
         taskCount: taskCount.count,
-        agentCount: agentCount.count
+        agentCount: agentCount.count,
       }, { status: 400 });
     }
-    
-    // Delete associated records that don't block deletion
-    db.prepare('DELETE FROM workflow_templates WHERE workspace_id = ?').run(id);
-    db.prepare('DELETE FROM knowledge_entries WHERE workspace_id = ?').run(id);
-    
-    db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
-    
-    return NextResponse.json({ success: true });
+
+    if (agentCount.count > 0 && !force) {
+      return NextResponse.json({
+        error: `Workspace has ${agentCount.count} agent(s). Pass force=true to delete them along with the workspace.`,
+        taskCount: 0,
+        agentCount: agentCount.count,
+      }, { status: 400 });
+    }
+
+    const cascade = db.transaction(() => {
+      if (force && agentCount.count > 0) {
+        db.prepare(
+          'DELETE FROM openclaw_sessions WHERE agent_id IN (SELECT id FROM agents WHERE workspace_id = ?)'
+        ).run(id);
+        db.prepare(
+          'DELETE FROM messages WHERE sender_agent_id IN (SELECT id FROM agents WHERE workspace_id = ?)'
+        ).run(id);
+        db.prepare(
+          'UPDATE knowledge_entries SET created_by_agent_id = NULL WHERE created_by_agent_id IN (SELECT id FROM agents WHERE workspace_id = ?)'
+        ).run(id);
+        db.prepare('DELETE FROM agents WHERE workspace_id = ?').run(id);
+      }
+      db.prepare('DELETE FROM workflow_templates WHERE workspace_id = ?').run(id);
+      db.prepare('DELETE FROM knowledge_entries WHERE workspace_id = ?').run(id);
+      db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+    });
+
+    cascade();
+
+    return NextResponse.json({ success: true, deletedAgents: force ? agentCount.count : 0 });
   } catch (error) {
     console.error('Failed to delete workspace:', error);
     return NextResponse.json({ error: 'Failed to delete workspace' }, { status: 500 });

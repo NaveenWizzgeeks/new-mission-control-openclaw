@@ -1,6 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import { Folder } from 'lucide-react';
+import { emitRefresh } from '@/hooks/useDataRefresh';
+import { DirectoryPicker } from './DirectoryPicker';
 
 interface CreateWorkspaceModalProps {
   onClose: () => void;
@@ -10,6 +13,8 @@ interface CreateWorkspaceModalProps {
 export function CreateWorkspaceModal({ onClose, onCreated }: CreateWorkspaceModalProps) {
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('📁');
+  const [path, setPath] = useState('');
+  const [showPicker, setShowPicker] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,10 +31,16 @@ export function CreateWorkspaceModal({ onClose, onCreated }: CreateWorkspaceModa
       const res = await fetch('/api/workspaces', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), icon }),
+        body: JSON.stringify({
+          name: name.trim(),
+          icon,
+          path: path.trim() || undefined,
+        }),
       });
 
       if (res.ok) {
+        emitRefresh('workspaces');
+        emitRefresh('agents');
         onCreated();
       } else {
         const data = await res.json();
@@ -82,6 +93,32 @@ export function CreateWorkspaceModal({ onClose, onCreated }: CreateWorkspaceModa
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Working directory <span className="text-mc-text-secondary font-normal">(optional)</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="/absolute/path/to/project"
+                className="flex-1 min-w-0 bg-mc-bg border border-mc-border rounded-lg px-4 py-2 font-mono text-sm focus:outline-none focus:border-mc-accent"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPicker(true)}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg border border-mc-border text-sm text-mc-text-secondary hover:text-mc-text hover:border-mc-accent/50"
+              >
+                <Folder className="w-4 h-4" />
+                Browse
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-mc-text-secondary">
+              Where agents will work for this workspace. Leave blank to set later.
+            </p>
+          </div>
+
           {error && <div className="text-mc-accent-red text-sm">{error}</div>}
 
           <div className="flex justify-end gap-3 pt-4">
@@ -102,6 +139,14 @@ export function CreateWorkspaceModal({ onClose, onCreated }: CreateWorkspaceModa
           </div>
         </form>
       </div>
+
+      {showPicker && (
+        <DirectoryPicker
+          initialPath={path || undefined}
+          onCancel={() => setShowPicker(false)}
+          onSelect={(picked) => { setPath(picked); setShowPicker(false); }}
+        />
+      )}
     </div>
   );
 }

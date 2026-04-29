@@ -1595,6 +1595,17 @@ const migrations: Migration[] = [
 
       console.log('[Migration 028] product_skills and skill_reports tables created');
     }
+  },
+  {
+    id: '029',
+    name: 'add_workspace_path',
+    up: (db) => {
+      const cols = db.prepare("PRAGMA table_info(workspaces)").all() as { name: string }[];
+      if (!cols.some(c => c.name === 'path')) {
+        db.exec(`ALTER TABLE workspaces ADD COLUMN path TEXT`);
+        console.log('[Migration 029] Added path column to workspaces');
+      }
+    }
   }
 ];
 

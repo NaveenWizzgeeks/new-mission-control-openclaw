@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import type { Agent } from '@/lib/types';
+import { useDataRefresh } from '@/hooks/useDataRefresh';
 
 const STATUS_DOT: Record<string, string> = {
   working: 'bg-mc-accent-green',
@@ -13,7 +14,7 @@ export function AgentRoster() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     fetch('/api/agents')
       .then(r => r.ok ? r.json() : [])
       .then(setAgents)
@@ -21,9 +22,17 @@ export function AgentRoster() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => { load(); }, [load]);
+  useDataRefresh(['agents', 'workspaces'], load);
+
   return (
-    <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5">
-      <p className="text-sm font-medium uppercase tracking-wider text-mc-text-secondary mb-4">Agent Roster</p>
+    <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5 flex flex-col max-h-[28rem]">
+      <div className="flex items-center justify-between mb-4 shrink-0">
+        <p className="text-sm font-medium uppercase tracking-wider text-mc-text-secondary">Agent Roster</p>
+        {!loading && agents.length > 0 && (
+          <span className="text-xs text-mc-text-secondary tabular-nums">{agents.length}</span>
+        )}
+      </div>
       {loading ? (
         <div className="space-y-3">
           {[1, 2, 3].map(i => <div key={i} className="h-9 rounded-lg bg-mc-bg-tertiary animate-pulse" />)}
@@ -31,7 +40,7 @@ export function AgentRoster() {
       ) : agents.length === 0 ? (
         <p className="text-mc-text-secondary text-sm">No agents configured</p>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2 overflow-y-auto -mr-2 pr-2">
           {agents.map(agent => (
             <div key={agent.id} className="flex items-center gap-3">
               <span className="text-xl leading-none">{agent.avatar_emoji}</span>

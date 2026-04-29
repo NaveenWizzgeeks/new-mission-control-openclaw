@@ -154,6 +154,7 @@ export interface Workspace {
   slug: string;
   description?: string;
   icon: string;
+  path?: string;
   created_at: string;
   updated_at: string;
 }
