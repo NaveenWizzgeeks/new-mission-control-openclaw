@@ -1,179 +1,87 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, ListTodo, Users, Activity, Settings as SettingsIcon, ExternalLink, Home, BarChart3 } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import { Header } from '@/components/Header';
-import { AgentsSidebar } from '@/components/AgentsSidebar';
-import { MissionQueue } from '@/components/MissionQueue';
-import { LiveFeed } from '@/components/LiveFeed';
+import { MissionBoard } from '@/components/MissionBoard';
 import { SSEDebugPanel } from '@/components/SSEDebugPanel';
-import { useMissionControl } from '@/lib/store';
 import { useSSE } from '@/hooks/useSSE';
-import { debug } from '@/lib/debug';
-import type { Task, Workspace } from '@/lib/types';
-
-type MobileTab = 'queue' | 'agents' | 'feed' | 'settings';
+import type { Workspace } from '@/lib/types';
+import type { MissionCardData } from '@/components/MissionCard';
+import type { MissionStage } from '@/lib/types';
 
 export default function WorkspacePage() {
   const params = useParams();
   const slug = params.slug as string;
 
-  const { setAgents, setTasks, setEvents, setIsOnline, setIsLoading, isLoading } = useMissionControl();
-
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [missions, setMissions] = useState<MissionCardData[]>([]);
   const [notFound, setNotFound] = useState(false);
-  const [mobileTab, setMobileTab] = useState<MobileTab>('queue');
-  const [isPortrait, setIsPortrait] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
 
   useSSE();
-
-  useEffect(() => {
-    const media = window.matchMedia('(orientation: portrait)');
-    const updateOrientation = () => setIsPortrait(media.matches);
-
-    updateOrientation();
-    media.addEventListener('change', updateOrientation);
-    window.addEventListener('resize', updateOrientation);
-
-    return () => {
-      media.removeEventListener('change', updateOrientation);
-      window.removeEventListener('resize', updateOrientation);
-    };
-  }, []);
 
   useEffect(() => {
     async function loadWorkspace() {
       try {
         const res = await fetch(`/api/workspaces/${slug}`);
         if (res.ok) {
-          const data = await res.json();
-          setWorkspace(data);
+          setWorkspace(await res.json());
         } else if (res.status === 404) {
           setNotFound(true);
           setIsLoading(false);
-          return;
         }
-      } catch (error) {
-        console.error('Failed to load workspace:', error);
+      } catch {
         setNotFound(true);
         setIsLoading(false);
-        return;
       }
     }
-
     loadWorkspace();
-  }, [slug, setIsLoading]);
+  }, [slug]);
 
-  useEffect(() => {
-    if (!isPortrait && mobileTab === 'queue') {
-      setMobileTab('agents');
+  const loadMissions = useCallback(async (workspaceId: string) => {
+    try {
+      const res = await fetch(`/api/missions?workspace_id=${workspaceId}`);
+      if (res.ok) setMissions(await res.json());
+    } catch (err) {
+      console.error('[WorkspacePage] Failed to load missions:', err);
+    } finally {
+      setIsLoading(false);
     }
-  }, [isPortrait, mobileTab]);
+  }, []);
 
   useEffect(() => {
     if (!workspace) return;
+    loadMissions(workspace.id);
 
-    const workspaceId = workspace.id;
+    const poll = setInterval(() => loadMissions(workspace.id), 30_000);
+    return () => clearInterval(poll);
+  }, [workspace, loadMissions]);
 
-    async function loadData() {
-      try {
-        debug.api('Loading workspace data...', { workspaceId });
+  const handleStageChange = useCallback((missionId: string, newStage: MissionStage) => {
+    setMissions(prev =>
+      prev.map(m => m.id === missionId ? { ...m, mission_stage: newStage } : m)
+    );
+  }, []);
 
-        const [agentsRes, tasksRes, eventsRes] = await Promise.all([
-          fetch(`/api/agents?workspace_id=${workspaceId}`),
-          fetch(`/api/tasks?workspace_id=${workspaceId}`),
-          fetch('/api/events'),
-        ]);
+  const handleCreateMission = useCallback(() => {
+    if (!workspace) return;
+    const title = window.prompt('Mission title?');
+    if (!title?.trim()) return;
 
-        if (agentsRes.ok) setAgents(await agentsRes.json());
-        if (tasksRes.ok) {
-          const tasksData = await tasksRes.json();
-          debug.api('Loaded tasks', { count: tasksData.length });
-          setTasks(tasksData);
-        }
-        if (eventsRes.ok) setEvents(await eventsRes.json());
-      } catch (error) {
-        console.error('Failed to load data:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    async function checkOpenClaw() {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-        const openclawRes = await fetch('/api/openclaw/status', { signal: controller.signal });
-        clearTimeout(timeoutId);
-
-        if (openclawRes.ok) {
-          const status = await openclawRes.json();
-          setIsOnline(status.connected);
-        }
-      } catch {
-        setIsOnline(false);
-      }
-    }
-
-    loadData();
-    checkOpenClaw();
-
-    const eventPoll = setInterval(async () => {
-      try {
-        const res = await fetch('/api/events?limit=20');
-        if (res.ok) {
-          setEvents(await res.json());
-        }
-      } catch (error) {
-        console.error('Failed to poll events:', error);
-      }
-    }, 30000);
-
-    const taskPoll = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/tasks?workspace_id=${workspaceId}`);
-        if (res.ok) {
-          const newTasks: Task[] = await res.json();
-          const currentTasks = useMissionControl.getState().tasks;
-
-          const hasChanges =
-            newTasks.length !== currentTasks.length ||
-            newTasks.some((t) => {
-              const current = currentTasks.find((ct) => ct.id === t.id);
-              return !current || current.updated_at !== t.updated_at;
-            });
-
-          if (hasChanges) {
-            debug.api('[FALLBACK] Task changes detected via polling, updating store');
-            setTasks(newTasks);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to poll tasks:', error);
-      }
-    }, 60000);
-
-    const connectionCheck = setInterval(async () => {
-      try {
-        const res = await fetch('/api/openclaw/status');
-        if (res.ok) {
-          const status = await res.json();
-          setIsOnline(status.connected);
-        }
-      } catch {
-        setIsOnline(false);
-      }
-    }, 30000);
-
-    return () => {
-      clearInterval(eventPoll);
-      clearInterval(connectionCheck);
-      clearInterval(taskPoll);
-    };
-  }, [workspace, setAgents, setTasks, setEvents, setIsOnline, setIsLoading]);
+    fetch('/api/missions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: title.trim(), workspace_id: workspace.id }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.convoy) loadMissions(workspace.id);
+      })
+      .catch(err => console.error('[WorkspacePage] Create mission failed:', err));
+  }, [workspace, loadMissions]);
 
   if (notFound) {
     return (
@@ -202,144 +110,26 @@ export default function WorkspacePage() {
     );
   }
 
-  const showMobileBottomTabs = isPortrait;
-
   return (
     <div className="h-screen flex flex-col bg-mc-bg overflow-hidden">
-      <Header workspace={workspace} isPortrait={isPortrait} />
+      <Header workspace={workspace} isPortrait={false} />
 
-      <div className="hidden lg:flex flex-1 overflow-hidden">
-        <AgentsSidebar workspaceId={workspace.id} />
-        <MissionQueue workspaceId={workspace.id} />
-        <LiveFeed />
-      </div>
-
-      <div
-        className={`lg:hidden flex-1 overflow-hidden ${
-          showMobileBottomTabs ? 'pb-[calc(4.5rem+env(safe-area-inset-bottom))]' : 'pb-[env(safe-area-inset-bottom)]'
-        }`}
-      >
-        {isPortrait ? (
-          <>
-            {mobileTab === 'queue' && <MissionQueue workspaceId={workspace.id} mobileMode isPortrait />}
-            {mobileTab === 'agents' && (
-              <div className="h-full p-3 overflow-y-auto">
-                <AgentsSidebar workspaceId={workspace.id} mobileMode isPortrait />
-              </div>
-            )}
-            {mobileTab === 'feed' && (
-              <div className="h-full p-3 overflow-y-auto">
-                <LiveFeed mobileMode isPortrait />
-              </div>
-            )}
-            {mobileTab === 'settings' && <MobileSettingsPanel workspace={workspace} />}
-          </>
-        ) : (
-          <div className="h-full p-3 grid grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-3">
-            <MissionQueue workspaceId={workspace.id} mobileMode isPortrait={false} />
-            <div className="min-w-0 h-full flex flex-col gap-3">
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => setMobileTab('agents')}
-                  className={`min-h-11 rounded-lg text-xs ${mobileTab === 'agents' ? 'bg-mc-accent text-mc-bg font-medium' : 'bg-mc-bg-secondary border border-mc-border text-mc-text-secondary'}`}
-                >
-                  Agents
-                </button>
-                <button
-                  onClick={() => setMobileTab('feed')}
-                  className={`min-h-11 rounded-lg text-xs ${mobileTab === 'feed' ? 'bg-mc-accent text-mc-bg font-medium' : 'bg-mc-bg-secondary border border-mc-border text-mc-text-secondary'}`}
-                >
-                  Feed
-                </button>
-                <button
-                  onClick={() => setMobileTab('settings')}
-                  className={`min-h-11 rounded-lg text-xs ${mobileTab === 'settings' ? 'bg-mc-accent text-mc-bg font-medium' : 'bg-mc-bg-secondary border border-mc-border text-mc-text-secondary'}`}
-                >
-                  Settings
-                </button>
-              </div>
-
-              <div className="min-h-0 flex-1">
-                {mobileTab === 'settings' ? (
-                  <MobileSettingsPanel workspace={workspace} denseLandscape />
-                ) : mobileTab === 'agents' ? (
-                  <AgentsSidebar workspaceId={workspace.id} mobileMode isPortrait={false} />
-                ) : (
-                  <LiveFeed mobileMode isPortrait={false} />
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {showMobileBottomTabs && (
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-mc-border bg-mc-bg-secondary pb-[env(safe-area-inset-bottom)]">
-          <div className="grid grid-cols-4 gap-1 p-2">
-            <MobileTabButton label="Queue" active={mobileTab === 'queue'} icon={<ListTodo className="w-5 h-5" />} onClick={() => setMobileTab('queue')} />
-            <MobileTabButton label="Agents" active={mobileTab === 'agents'} icon={<Users className="w-5 h-5" />} onClick={() => setMobileTab('agents')} />
-            <MobileTabButton label="Feed" active={mobileTab === 'feed'} icon={<Activity className="w-5 h-5" />} onClick={() => setMobileTab('feed')} />
-            <MobileTabButton label="Settings" active={mobileTab === 'settings'} icon={<SettingsIcon className="w-5 h-5" />} onClick={() => setMobileTab('settings')} />
-          </div>
-        </nav>
-      )}
-
-      <SSEDebugPanel />
-    </div>
-  );
-}
-
-function MobileTabButton({ label, active, icon, onClick }: { label: string; active: boolean; icon: ReactNode; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`min-h-11 rounded-lg flex flex-col items-center justify-center text-xs ${
-        active ? 'bg-mc-accent text-mc-bg font-medium' : 'text-mc-text-secondary'
-      }`}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
-  );
-}
-
-function MobileSettingsPanel({ workspace, denseLandscape = false }: { workspace: Workspace; denseLandscape?: boolean }) {
-  return (
-    <div className={`h-full overflow-y-auto ${denseLandscape ? 'p-0 pb-[env(safe-area-inset-bottom)]' : 'p-3 pb-[calc(1rem+env(safe-area-inset-bottom))]'}`}>
-      <div className="space-y-3">
-        <div className="bg-mc-bg-secondary border border-mc-border rounded-lg p-4">
-          <div className="text-sm text-mc-text-secondary mb-2">Current workspace</div>
-          <div className="flex items-center gap-2 text-base font-medium">
-            <span>{workspace.icon}</span>
-            <span>{workspace.name}</span>
-          </div>
-          <div className="text-xs text-mc-text-secondary mt-1">/{workspace.slug}</div>
+      <div className="flex-1 overflow-hidden flex flex-col">
+        <div className="px-4 pt-3 pb-1 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-mc-text">Missions</h2>
+          <span className="text-xs text-mc-text-secondary">{missions.length} total</span>
         </div>
 
-
-        <Link href={`/workspace/${workspace.slug}/activity`} className="w-full min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg-secondary flex items-center justify-between text-sm">
-          <span className="flex items-center gap-2">
-            <BarChart3 className="w-4 h-4" />
-            Agent Activity Dashboard
-          </span>
-          <ExternalLink className="w-4 h-4 text-mc-text-secondary" />
-        </Link>
-        <Link href="/settings" className="w-full min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg-secondary flex items-center justify-between text-sm">
-          <span className="flex items-center gap-2">
-            <SettingsIcon className="w-4 h-4" />
-            Open Mission Control Settings
-          </span>
-          <ExternalLink className="w-4 h-4 text-mc-text-secondary" />
-        </Link>
-
-        <Link href="/" className="w-full min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg-secondary flex items-center justify-between text-sm">
-          <span className="flex items-center gap-2">
-            <Home className="w-4 h-4" />
-            Back to Workspaces
-          </span>
-          <ExternalLink className="w-4 h-4 text-mc-text-secondary" />
-        </Link>
+        <MissionBoard
+          missions={missions}
+          workspaceSlug={slug}
+          workspaceId={workspace.id}
+          onStageChange={handleStageChange}
+          onCreateMission={handleCreateMission}
+        />
       </div>
+
+      <SSEDebugPanel />
     </div>
   );
 }
