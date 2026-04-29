@@ -23,6 +23,7 @@ const config: Config = {
         'mc-accent-purple': '#a371f7',
         'mc-accent-pink': '#db61a2',
         'mc-accent-cyan': '#39d353',
+        'mc-accent-blue': '#38bdf8',
       },
       fontFamily: {
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],

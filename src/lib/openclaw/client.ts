@@ -576,6 +576,42 @@ export class OpenClawClient extends EventEmitter {
       this.reconnectTimer = null;
     }
   }
+
+  async getUsageTokens(params?: { startDate?: string; endDate?: string; days?: number; mode?: string; utcOffset?: number }): Promise<unknown> {
+    return this.call('usage.cost', params as Record<string, unknown> | undefined);
+  }
+
+  async getSessionsUsage(params?: { key?: string }): Promise<unknown> {
+    return this.call('sessions.usage', params as Record<string, unknown> | undefined);
+  }
+}
+
+// Usage/token tracking types
+export interface UsageTokenSummary {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+  byModel?: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number }>;
+}
+
+export interface UsageTokenOverview {
+  today: UsageTokenSummary;
+  week: UsageTokenSummary;
+  month: UsageTokenSummary;
+  total: UsageTokenSummary;
+}
+
+export interface SessionUsageEntry {
+  key: string;
+  label?: string;
+  updatedAt?: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
 }
 
 // Singleton instance for server-side usage
