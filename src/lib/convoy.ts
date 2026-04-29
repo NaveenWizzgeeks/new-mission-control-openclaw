@@ -4,7 +4,7 @@ import { broadcast } from '@/lib/events';
 import { notifyLearner } from '@/lib/learner';
 import { getMissionControlUrl } from '@/lib/config';
 import { pickDynamicAgent } from '@/lib/task-governance';
-import type { Convoy, ConvoySubtask, Task, ConvoyStatus, DecompositionStrategy } from '@/lib/types';
+import type { Convoy, ConvoySubtask, Task, ConvoyStatus, MissionStage, DecompositionStrategy } from '@/lib/types';
 
 interface CreateSubtaskInput {
   title: string;
@@ -40,8 +40,8 @@ export function createConvoy(input: CreateConvoyInput): Convoy {
     const now = new Date().toISOString();
 
     run(
-      `INSERT INTO convoys (id, parent_task_id, name, status, decomposition_strategy, decomposition_spec, total_subtasks, created_at, updated_at)
-       VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
+      `INSERT INTO convoys (id, parent_task_id, name, status, mission_stage, decomposition_strategy, decomposition_spec, total_subtasks, created_at, updated_at)
+       VALUES (?, ?, ?, 'active', 'planning', ?, ?, ?, ?, ?)`,
       [convoyId, parentTaskId, name, strategy, decompositionSpec || null, subtasks.length, now, now]
     );
 
@@ -179,6 +179,15 @@ export function checkConvoyCompletion(convoyId: string): boolean {
       `UPDATE convoys SET status = 'done', completed_subtasks = ?, updated_at = ? WHERE id = ?`,
       [completed, now, convoyId]
     );
+
+    // Auto-advance mission_stage: if testing → done (verification pass)
+    if (convoy.mission_stage === 'testing') {
+      run(`UPDATE convoys SET mission_stage = 'done', updated_at = ? WHERE id = ?`, [now, convoyId]);
+      run(
+        `INSERT INTO events (id, type, task_id, message, created_at) VALUES (?, ?, ?, ?, ?)`,
+        [uuidv4(), 'mission_stage_changed', convoy.parent_task_id, `Mission stage → done (verification pass)`, now]
+      );
+    }
 
     // Move parent task to review
     run(
@@ -404,6 +413,29 @@ export function updateConvoyStatus(convoyId: string, status: ConvoyStatus): Conv
   run(`UPDATE convoys SET status = ?, updated_at = ? WHERE id = ?`, [status, now, convoyId]);
   const convoy = queryOne<Convoy>('SELECT * FROM convoys WHERE id = ?', [convoyId])!;
   return convoy;
+}
+
+/**
+ * Explicitly set the mission_stage on a convoy.
+ * actor: 'operator' (no updated_by_agent_id) or an agent ID string.
+ * Returns the updated convoy.
+ */
+export function setMissionStage(convoyId: string, stage: MissionStage, actor: string): Convoy {
+  const convoy = queryOne<Convoy>('SELECT * FROM convoys WHERE id = ?', [convoyId]);
+  if (!convoy) throw new Error(`Convoy ${convoyId} not found`);
+
+  const now = new Date().toISOString();
+  run(`UPDATE convoys SET mission_stage = ?, updated_at = ? WHERE id = ?`, [stage, now, convoyId]);
+
+  const updated = queryOne<Convoy>('SELECT * FROM convoys WHERE id = ?', [convoyId])!;
+  broadcast({ type: 'convoy_progress', payload: updated });
+
+  run(
+    `INSERT INTO events (id, type, task_id, message, created_at) VALUES (?, ?, ?, ?, ?)`,
+    [uuidv4(), 'mission_stage_changed', convoy.parent_task_id, `Mission stage → ${stage} (by ${actor})`, now]
+  );
+
+  return updated;
 }
 
 /**

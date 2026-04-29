@@ -1725,6 +1725,44 @@ const migrations: Migration[] = [
 
       console.log(`[Migration 030] Refreshed soul_md with Trust Model section for ${updated} agent(s)`);
     }
+  },
+  {
+    id: '031',
+    name: 'add_mission_stage',
+    up: (db) => {
+      console.log('[Migration 031] Adding mission_stage to convoys...');
+
+      const convoyInfo = db.prepare("PRAGMA table_info(convoys)").all() as { name: string }[];
+
+      if (!convoyInfo.some(col => col.name === 'mission_stage')) {
+        // SQLite CHECK constraints on new columns are only enforced for new rows;
+        // we still add it for documentation — the app layer enforces the enum.
+        db.exec(`ALTER TABLE convoys ADD COLUMN mission_stage TEXT DEFAULT 'backlog'`);
+        console.log('[Migration 031] Added mission_stage column');
+
+        // Backfill: derive mission_stage from convoys.status + parent task status.
+        // done convoy → 'done'
+        // active convoy where parent task is 'convoy_active' and completed_subtasks > 0 → 'in_progress'
+        // active convoy where parent task is 'planning' → 'planning'
+        // everything else → 'backlog'
+        db.exec(`
+          UPDATE convoys
+          SET mission_stage = CASE
+            WHEN status = 'done' OR status = 'failed' THEN 'done'
+            WHEN status = 'active' AND (
+              SELECT t.status FROM tasks t WHERE t.id = convoys.parent_task_id
+            ) = 'convoy_active' AND completed_subtasks > 0 THEN 'in_progress'
+            WHEN status = 'active' AND (
+              SELECT t.status FROM tasks t WHERE t.id = convoys.parent_task_id
+            ) IN ('planning', 'pending_dispatch') THEN 'planning'
+            ELSE 'backlog'
+          END
+        `);
+        console.log('[Migration 031] Backfilled mission_stage from convoy status');
+      } else {
+        console.log('[Migration 031] mission_stage already exists — skipping');
+      }
+    }
   }
 ];
 
