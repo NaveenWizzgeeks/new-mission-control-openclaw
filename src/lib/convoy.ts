@@ -27,7 +27,7 @@ interface CreateConvoyInput {
 export function createConvoy(input: CreateConvoyInput): Convoy {
   const { parentTaskId, name, strategy, decompositionSpec, subtasks = [] } = input;
 
-  return transaction(() => {
+  const convoy = transaction(() => {
     const task = queryOne<Task>('SELECT * FROM tasks WHERE id = ?', [parentTaskId]);
     if (!task) throw new Error(`Task ${parentTaskId} not found`);
     if (task.is_subtask) throw new Error('Cannot create a convoy from a sub-task');
@@ -87,6 +87,13 @@ export function createConvoy(input: CreateConvoyInput): Convoy {
 
     return convoy;
   });
+
+  // Auto-drain first wave — fire-and-forget, does not block convoy creation
+  dispatchReadyConvoySubtasks(convoy.id).catch(err =>
+    console.error('[Convoy] initial dispatch failed:', err)
+  );
+
+  return convoy;
 }
 
 /**
