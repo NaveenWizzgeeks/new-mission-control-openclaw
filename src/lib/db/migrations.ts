@@ -1928,6 +1928,77 @@ const migrations: Migration[] = [
         console.log('[Migration 032] Planner agent already exists — Fury seed skipped');
       }
     }
+  },
+  {
+    id: '033',
+    name: 'nexus_phase_7_agent_skills',
+    up: (db) => {
+      // Phase 7a: agent_skills table + seed role-default skills.
+      // Skills are scoped to the agent (not the workspace) and are injected
+      // into the agent's spawn config before each session so the agent has
+      // the right tools/prompts/file access.
+      console.log('[Migration 033] Creating agent_skills table');
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS agent_skills (
+          id TEXT PRIMARY KEY,
+          agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+          skill_type TEXT NOT NULL CHECK(skill_type IN ('shell', 'mcp', 'prompt_inject', 'file_access')),
+          skill_name TEXT NOT NULL,
+          skill_config TEXT NOT NULL DEFAULT '{}',
+          enabled INTEGER DEFAULT 1,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_skills_agent ON agent_skills(agent_id, enabled)`);
+
+      // Seed defaults — one row per (agent, skill_type+skill_name). Idempotent
+      // via INSERT OR IGNORE keyed by (agent_id, skill_name).
+      // Use a UNIQUE constraint on (agent_id, skill_name) to dedupe.
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_skills_name ON agent_skills(agent_id, skill_name)`);
+
+      // Map role → default skills. Roles match the seeded agents from the
+      // existing autensa workspace plus Fury (planner) from Migration 032.
+      // skill_config is JSON; structure is consumed by the skill injector.
+      type SkillSeed = { type: 'shell' | 'mcp' | 'prompt_inject' | 'file_access'; name: string; config: object };
+      const seedsByRole: Record<string, SkillSeed[]> = {
+        planner: [
+          { type: 'prompt_inject', name: 'web_search', config: { content: 'You may use web search via the gateway when researching unfamiliar libraries, APIs, or current best practices.' } },
+          { type: 'file_access', name: 'codebase_read', config: { paths: ['./'], read_only: true } },
+        ],
+        builder: [
+          { type: 'shell', name: 'git', config: { command: 'git', description: 'Read git status, diff, and stage/commit when implementing features.' } },
+          { type: 'file_access', name: 'filesystem_write', config: { paths: ['./'], read_only: false } },
+        ],
+        tester: [
+          { type: 'shell', name: 'playwright', config: { command: 'npx playwright test --reporter=json', description: 'Run the project Playwright suite. Output is JSON.' } },
+          { type: 'file_access', name: 'codebase_read', config: { paths: ['./'], read_only: true } },
+        ],
+        reviewer: [
+          { type: 'shell', name: 'git_diff', config: { command: 'git diff', description: 'Inspect pending changes during review.' } },
+          { type: 'file_access', name: 'filesystem_read', config: { paths: ['./'], read_only: true } },
+        ],
+      };
+
+      const insertSkill = db.prepare(`
+        INSERT OR IGNORE INTO agent_skills (id, agent_id, skill_type, skill_name, skill_config, enabled, created_at)
+        VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, 1, datetime('now'))
+      `);
+
+      // Find all current agents and seed by role (case-insensitive match).
+      const agents = db.prepare(`SELECT id, role FROM agents`).all() as { id: string; role: string }[];
+      let seededCount = 0;
+      for (const agent of agents) {
+        const role = (agent.role || '').toLowerCase();
+        const seeds = seedsByRole[role];
+        if (!seeds) continue;
+        for (const s of seeds) {
+          const result = insertSkill.run(agent.id, s.type, s.name, JSON.stringify(s.config));
+          if (result.changes > 0) seededCount += 1;
+        }
+      }
+      console.log(`[Migration 033] Seeded ${seededCount} default skills across ${agents.length} agents`);
+    }
   }
 ];
 

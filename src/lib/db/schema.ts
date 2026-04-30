@@ -297,6 +297,17 @@ CREATE TABLE IF NOT EXISTS codebase_cache (
   diff_hash TEXT
 );
 
+-- Agent skills (Nexus Phase 7 — per-agent capabilities injected at session spawn)
+CREATE TABLE IF NOT EXISTS agent_skills (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  skill_type TEXT NOT NULL CHECK (skill_type IN ('shell', 'mcp', 'prompt_inject', 'file_access')),
+  skill_name TEXT NOT NULL,
+  skill_config TEXT NOT NULL DEFAULT '{}',
+  enabled INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Convoy subtasks: individual work items within a convoy
 CREATE TABLE IF NOT EXISTS convoy_subtasks (
   id TEXT PRIMARY KEY,
@@ -781,6 +792,8 @@ CREATE INDEX IF NOT EXISTS idx_convoys_status ON convoys(status);
 CREATE INDEX IF NOT EXISTS idx_convoy_subtasks_convoy ON convoy_subtasks(convoy_id);
 CREATE INDEX IF NOT EXISTS idx_convoy_subtasks_task ON convoy_subtasks(task_id);
 CREATE INDEX IF NOT EXISTS idx_codebase_cache_mission ON codebase_cache(mission_id);
+CREATE INDEX IF NOT EXISTS idx_agent_skills_agent ON agent_skills(agent_id, enabled);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_skills_name ON agent_skills(agent_id, skill_name);
 CREATE INDEX IF NOT EXISTS idx_agent_health_agent ON agent_health(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_health_state ON agent_health(health_state);
 CREATE INDEX IF NOT EXISTS idx_work_checkpoints_task ON work_checkpoints(task_id, created_at DESC);

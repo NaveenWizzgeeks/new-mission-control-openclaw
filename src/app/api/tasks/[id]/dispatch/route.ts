@@ -285,6 +285,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // Nexus Phase 7: inject the agent's own skill set (shell tools, MCP
+    // servers, file access, prompt fragments). These follow the agent into
+    // every dispatch — so a Builder always knows it has git + filesystem
+    // write, a Tester always knows it has playwright, etc. Best-effort.
+    try {
+      const { loadSkillsForAgent, skillsToPromptSuffix } = await import('@/lib/agentSkills');
+      const agentSkills = loadSkillsForAgent(agent.id);
+      const agentSkillsBlock = skillsToPromptSuffix(agentSkills);
+      if (agentSkillsBlock) skillsSection = `${skillsSection}${agentSkillsBlock}`;
+    } catch (err) {
+      console.error('[Dispatch] agent skill injection failed:', err);
+    }
+
     // Determine role-specific instructions based on workflow template
     const workflow = getTaskWorkflow(id);
     let currentStage: WorkflowStage | undefined;
