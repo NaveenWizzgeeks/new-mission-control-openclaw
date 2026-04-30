@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ChevronLeft, MessageSquare, Wrench, Brain, History, Settings as SettingsIcon, Crown, Loader2 } from 'lucide-react';
 import { AgentSkillsTab } from '@/components/agents/AgentSkillsTab';
 import { AgentSettingsTab } from '@/components/agents/AgentSettingsTab';
+import { AgentMemoryTab } from '@/components/agents/AgentMemoryTab';
 import type { Agent } from '@/lib/types';
 
 type TabKey = 'skills' | 'settings' | 'chat' | 'memory' | 'sessions';
@@ -132,7 +133,7 @@ export default function AgentDetailPage() {
           {tab === 'skills' && <AgentSkillsTab agentId={agent.id} />}
           {tab === 'settings' && <AgentSettingsTab agent={agent} onAgentUpdated={load} />}
           {tab === 'chat' && <Stub icon="💬" title="Direct chat" body="Phase 11 (full OpenClaw chat UI) wires this. Agent-direct chat will let you send free-form messages and create tasks via /task slash commands." />}
-          {tab === 'memory' && <Stub icon="🧠" title="Memory summaries" body="Phase 8 (Memory system) builds summarization on session completion and shows recent summaries here." />}
+          {tab === 'memory' && <AgentMemoryTab agentId={agent.id} />}
           {tab === 'sessions' && <Stub icon="🕒" title="Session history" body="Phase 9 (Sessions dashboard) adds the per-agent filter view with token usage, cost, and expandable transcripts." />}
         </div>
       </div>

@@ -146,6 +146,20 @@ export async function PATCH(request: Request, { params }: RouteParams) {
           },
         });
       }
+
+      // Phase 8 memory hook: capture the agent's last assistant text from
+      // chat.history as a memory summary. Fire-and-forget so the PATCH
+      // response stays snappy. Best-effort.
+      if (session.agent_id) {
+        const agentRow = db.prepare(`SELECT session_key_prefix FROM agents WHERE id = ?`).get(session.agent_id) as { session_key_prefix?: string } | undefined;
+        const sessionKey = `${agentRow?.session_key_prefix ?? 'agent:main:'}${id}`;
+        const agentId = session.agent_id;
+        import('@/lib/memory/summarizer').then(({ summarizeFromSession }) =>
+          summarizeFromSession({ sessionKey, agentId, openclawSessionId: id }).catch(err =>
+            console.error('[Memory] summarize on session-complete failed:', err)
+          )
+        );
+      }
     }
 
     return NextResponse.json(updatedSession);

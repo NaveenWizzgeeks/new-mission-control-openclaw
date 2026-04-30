@@ -1999,6 +1999,30 @@ const migrations: Migration[] = [
       }
       console.log(`[Migration 033] Seeded ${seededCount} default skills across ${agents.length} agents`);
     }
+  },
+  {
+    id: '034',
+    name: 'nexus_phase_8_memory_summaries',
+    up: (db) => {
+      // Phase 8: per-agent memory. After each session completes we capture
+      // the agent's last assistant text as a summary; at next dispatch the
+      // last N summaries are prepended to the agent's prompt so they remember
+      // prior work across sessions.
+      console.log('[Migration 034] Creating memory_summaries table');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS memory_summaries (
+          id TEXT PRIMARY KEY,
+          agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+          session_id TEXT,
+          summary TEXT NOT NULL,
+          token_count INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_memory_summaries_agent ON memory_summaries(agent_id, created_at DESC)`);
+      // session_id can repeat if a session ends multiple times (rare); we
+      // dedupe at the lib layer rather than enforcing a unique constraint.
+    }
   }
 ];
 

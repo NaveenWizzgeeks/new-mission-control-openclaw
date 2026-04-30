@@ -298,6 +298,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       console.error('[Dispatch] agent skill injection failed:', err);
     }
 
+    // Nexus Phase 8: preload memory context. Prepend the agent's last few
+    // session summaries so they remember prior work across dispatches.
+    try {
+      const { loadMemoryContext } = await import('@/lib/memory/summarizer');
+      const memoryBlock = loadMemoryContext(agent.id, 5);
+      if (memoryBlock) skillsSection = `${skillsSection}${memoryBlock}`;
+    } catch (err) {
+      console.error('[Dispatch] memory context load failed:', err);
+    }
+
     // Nexus Phase 7c: lead-agent prompt orchestration. Inject Lead awareness
     // into every dispatch — the Lead gets "you coordinate the team", every
     // other agent gets "the team lead is X". No-op when no lead designated.

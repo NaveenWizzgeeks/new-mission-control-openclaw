@@ -308,6 +308,16 @@ CREATE TABLE IF NOT EXISTS agent_skills (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Memory summaries (Nexus Phase 8 — captured at session completion, preloaded at dispatch)
+CREATE TABLE IF NOT EXISTS memory_summaries (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  session_id TEXT,
+  summary TEXT NOT NULL,
+  token_count INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Convoy subtasks: individual work items within a convoy
 CREATE TABLE IF NOT EXISTS convoy_subtasks (
   id TEXT PRIMARY KEY,
@@ -794,6 +804,7 @@ CREATE INDEX IF NOT EXISTS idx_convoy_subtasks_task ON convoy_subtasks(task_id);
 CREATE INDEX IF NOT EXISTS idx_codebase_cache_mission ON codebase_cache(mission_id);
 CREATE INDEX IF NOT EXISTS idx_agent_skills_agent ON agent_skills(agent_id, enabled);
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_skills_name ON agent_skills(agent_id, skill_name);
+CREATE INDEX IF NOT EXISTS idx_memory_summaries_agent ON memory_summaries(agent_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_health_agent ON agent_health(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_health_state ON agent_health(health_state);
 CREATE INDEX IF NOT EXISTS idx_work_checkpoints_task ON work_checkpoints(task_id, created_at DESC);
