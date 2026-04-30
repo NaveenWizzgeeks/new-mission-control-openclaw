@@ -3,6 +3,9 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Rocket, Activity, ChevronLeft, ChevronRight, Briefcase } from 'lucide-react';
+import { SidebarSessions } from './sidebar/SidebarSessions';
+import { SidebarAgents } from './sidebar/SidebarAgents';
+import { SidebarTokens } from './sidebar/SidebarTokens';
 
 const STORAGE_KEY = 'mc-sidebar-collapsed';
 
@@ -56,11 +59,20 @@ export function HomeSidebar() {
       </div>
 
       {/* Nav links */}
-      <nav className="flex-1 px-2 py-3 flex flex-col gap-0.5">
+      <nav className="px-2 py-3 flex flex-col gap-0.5 flex-shrink-0">
         <NavLink href="/workspaces" label="Workspaces" icon={<Briefcase className="w-4 h-4" />} collapsed={collapsed} />
         <NavLink href="/autopilot" label="Autopilot" icon={<Rocket className="w-4 h-4" />} collapsed={collapsed} />
         <NavLink href="/activity" label="Activity" icon={<Activity className="w-4 h-4" />} collapsed={collapsed} />
       </nav>
+
+      {/* Dynamic sections — hidden when collapsed */}
+      {!collapsed && (
+        <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3 flex flex-col gap-0.5 border-t border-mc-border pt-2">
+          <SidebarSessions />
+          <SidebarAgents />
+          <SidebarTokens />
+        </div>
+      )}
     </aside>
   );
 }
