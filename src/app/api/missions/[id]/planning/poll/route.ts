@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '@/lib/db';
 import { addSubtasks, setMissionStage } from '@/lib/convoy';
+import { populateTaskRolesFromAgents } from '@/lib/workflow-engine';
 import {
   getMissionPlanningSessionKey,
   readFurySessionMessages,
@@ -183,6 +184,19 @@ export async function POST(
       }));
 
       const created = subtaskInputs.length > 0 ? addSubtasks(id, subtaskInputs) : [];
+
+      // For each new subtask, populate task_roles per the parent's workflow
+      // template so the autensa stage-handoff engine (testing→tester,
+      // review→reviewer, verification→verifier) can find agents at each stage.
+      // Without this, addSubtasks only sets assigned_agent_id and the workflow
+      // engine falls back to that single agent for every stage.
+      for (const cs of created) {
+        try {
+          populateTaskRolesFromAgents(cs.task_id, parent.workspace_id);
+        } catch (err) {
+          console.error(`[Mission planning/poll] populateTaskRolesFromAgents failed for ${cs.task_id}:`, err);
+        }
+      }
 
       // Wire dependencies and priorities
       if (created.length === subtaskInputs.length && completeSpecSubtasks) {

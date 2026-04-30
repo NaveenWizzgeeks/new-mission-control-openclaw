@@ -129,10 +129,20 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
     const priority = input.priority ?? 'normal';
 
+    // Resolve the workspace's default workflow template so all subtasks
+    // inherit it via addSubtasks. Without this, the workflow engine has no
+    // stage→role map and the tester/reviewer stages fall back to the original
+    // assigned_agent (the Builder) and break the autensa pipeline.
+    const defaultWorkflow = db.prepare(`
+      SELECT id FROM workflow_templates
+      WHERE workspace_id = ? AND is_default = 1
+      LIMIT 1
+    `).get(input.workspace_id) as { id: string } | undefined;
+
     db.prepare(`
-      INSERT INTO tasks (id, title, description, status, priority, workspace_id, created_at, updated_at)
-      VALUES (?, ?, ?, 'inbox', ?, ?, ?, ?)
-    `).run(taskId, input.title, input.description ?? null, priority, input.workspace_id, now, now);
+      INSERT INTO tasks (id, title, description, status, priority, workspace_id, workflow_template_id, created_at, updated_at)
+      VALUES (?, ?, ?, 'inbox', ?, ?, ?, ?, ?)
+    `).run(taskId, input.title, input.description ?? null, priority, input.workspace_id, defaultWorkflow?.id ?? null, now, now);
 
     // Create convoy shell (subtasks added later by Fury planning pipeline)
     const convoy = createConvoy({
