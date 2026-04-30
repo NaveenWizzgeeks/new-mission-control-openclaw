@@ -58,9 +58,14 @@ export function Header({ workspace, isPortrait = true }: HeaderProps) {
         <>
           <div className="flex items-center justify-between gap-2 min-w-0">
             <div className="flex items-center gap-2 min-w-0">
-              <Link href="/" className="flex items-center gap-1 text-mc-text-secondary hover:text-mc-accent transition-colors shrink-0">
-                <ChevronLeft className="w-4 h-4" />
-                <LayoutGrid className="w-4 h-4" />
+              <Link
+                href="/"
+                title="Back to dashboard"
+                className="flex items-center gap-1.5 px-2.5 min-h-9 rounded border border-mc-border bg-mc-bg-tertiary text-mc-text-secondary hover:text-mc-accent hover:border-mc-accent/50 transition-colors shrink-0 text-xs font-medium"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span className="hidden xs:inline">Dashboard</span>
               </Link>
               <div className="flex items-center gap-2 px-2.5 py-1.5 bg-mc-bg-tertiary rounded min-w-0">
                 <span className="text-base">{workspace.icon}</span>
@@ -110,9 +115,14 @@ export function Header({ workspace, isPortrait = true }: HeaderProps) {
 
             {workspace ? (
               <div className="flex items-center gap-2 min-w-0">
-                <Link href="/" className="hidden sm:flex items-center gap-1 text-mc-text-secondary hover:text-mc-accent transition-colors">
-                  <ChevronLeft className="w-4 h-4" />
-                  <LayoutGrid className="w-4 h-4" />
+                <Link
+                  href="/"
+                  title="Back to dashboard"
+                  className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-mc-border bg-mc-bg-tertiary text-mc-text-secondary hover:text-mc-accent hover:border-mc-accent/50 transition-colors text-xs font-medium"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Dashboard</span>
                 </Link>
                 <span className="hidden sm:block text-mc-text-secondary">/</span>
                 <div className="flex items-center gap-2 px-2 md:px-3 py-1 bg-mc-bg-tertiary rounded min-w-0">

@@ -28,15 +28,23 @@ export function HomeSidebar() {
         collapsed ? 'w-14' : 'w-64'
       }`}
     >
-      {/* Logo + collapse toggle */}
+      {/* Logo (links to dashboard) + collapse toggle */}
       <div className="px-3 py-4 border-b border-mc-border flex items-center gap-2">
-        <span className="text-2xl shrink-0">🦞</span>
-        {!collapsed && (
-          <div className="flex-1 min-w-0">
-            <h1 className="text-sm font-bold leading-tight truncate">Mission Control</h1>
-            <p className="text-xs text-mc-text-secondary truncate">OpenClaw</p>
-          </div>
-        )}
+        <Link
+          href="/"
+          title="Dashboard"
+          className={`flex items-center gap-2 min-w-0 rounded hover:bg-mc-bg-tertiary transition-colors ${
+            collapsed ? 'flex-1 justify-center p-1' : 'flex-1 px-1 py-1'
+          }`}
+        >
+          <span className="text-2xl shrink-0 leading-none">🦞</span>
+          {!collapsed && (
+            <div className="flex-1 min-w-0">
+              <h1 className="text-sm font-bold leading-tight truncate">Mission Control</h1>
+              <p className="text-xs text-mc-text-secondary truncate">OpenClaw</p>
+            </div>
+          )}
+        </Link>
         <button
           onClick={toggle}
           className="text-mc-text-secondary hover:text-mc-text shrink-0 p-1 rounded hover:bg-mc-bg-tertiary"
