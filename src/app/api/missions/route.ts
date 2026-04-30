@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
 
     db.prepare(`
       INSERT INTO tasks (id, title, description, status, priority, workspace_id, created_at, updated_at)
-      VALUES (?, ?, ?, 'planning', ?, ?, ?, ?)
+      VALUES (?, ?, ?, 'inbox', ?, ?, ?, ?)
     `).run(taskId, input.title, input.description ?? null, priority, input.workspace_id, now, now);
 
     // Create convoy shell (subtasks added later by Fury planning pipeline)
@@ -142,10 +142,14 @@ export async function POST(request: NextRequest) {
       subtasks: [],
     });
 
-    // Persist Nexus mission columns onto the convoy row.
+    // Per Nexus flow, new missions start at mission_stage='backlog' (todo).
+    // The user clicks "Start Planning" to advance → 'planning'. createConvoy
+    // also flips the parent task to 'convoy_active' which we revert to 'inbox'
+    // so it doesn't auto-trigger downstream dispatch.
     db.prepare(`
       UPDATE convoys
-      SET enable_pipeline = ?,
+      SET mission_stage = 'backlog',
+          enable_pipeline = ?,
           enable_existing_codebase = ?,
           codebase_path = ?,
           git_branch = ?,
@@ -163,6 +167,7 @@ export async function POST(request: NextRequest) {
       now,
       convoy.id
     );
+    db.prepare(`UPDATE tasks SET status = 'inbox', updated_at = ? WHERE id = ?`).run(now, taskId);
 
     // Re-fetch with the joined parent_task fields for a complete response
     const row = db.prepare(`
