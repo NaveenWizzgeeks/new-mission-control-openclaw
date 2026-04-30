@@ -318,6 +318,22 @@ CREATE TABLE IF NOT EXISTS memory_summaries (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Cron jobs (Nexus Phase 10 — singleton runner ticks every 30s)
+CREATE TABLE IF NOT EXISTS cron_jobs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  schedule TEXT NOT NULL,
+  action_type TEXT NOT NULL CHECK (action_type IN (
+    'codebase_scan', 'memory_summarize', 'agent_health_check', 'auto_propose', 'custom'
+  )),
+  action_config TEXT NOT NULL DEFAULT '{}',
+  last_run TEXT,
+  last_run_status TEXT,
+  next_run TEXT,
+  enabled INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Convoy subtasks: individual work items within a convoy
 CREATE TABLE IF NOT EXISTS convoy_subtasks (
   id TEXT PRIMARY KEY,
@@ -805,6 +821,7 @@ CREATE INDEX IF NOT EXISTS idx_codebase_cache_mission ON codebase_cache(mission_
 CREATE INDEX IF NOT EXISTS idx_agent_skills_agent ON agent_skills(agent_id, enabled);
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_skills_name ON agent_skills(agent_id, skill_name);
 CREATE INDEX IF NOT EXISTS idx_memory_summaries_agent ON memory_summaries(agent_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled_next ON cron_jobs(enabled, next_run);
 CREATE INDEX IF NOT EXISTS idx_agent_health_agent ON agent_health(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_health_state ON agent_health(health_state);
 CREATE INDEX IF NOT EXISTS idx_work_checkpoints_task ON work_checkpoints(task_id, created_at DESC);

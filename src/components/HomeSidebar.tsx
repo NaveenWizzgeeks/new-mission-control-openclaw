@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Rocket, Activity, ChevronLeft, ChevronRight, Briefcase, Bot, BarChart3 } from 'lucide-react';
+import { Rocket, Activity, ChevronLeft, ChevronRight, Briefcase, Bot, BarChart3, Clock } from 'lucide-react';
 import { SidebarSessions } from './sidebar/SidebarSessions';
 import { SidebarTokens } from './sidebar/SidebarTokens';
 
@@ -65,6 +65,7 @@ export function HomeSidebar() {
         <NavLink href="/workspaces" label="Workspaces" icon={<Briefcase className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/agents" label="Agents" icon={<Bot className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/sessions" label="Sessions" icon={<BarChart3 className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
+        <NavLink href="/crons" label="Crons" icon={<Clock className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/autopilot" label="Autopilot" icon={<Rocket className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/activity" label="Activity" icon={<Activity className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
       </nav>

@@ -2023,6 +2023,49 @@ const migrations: Migration[] = [
       // session_id can repeat if a session ends multiple times (rare); we
       // dedupe at the lib layer rather than enforcing a unique constraint.
     }
+  },
+  {
+    id: '035',
+    name: 'nexus_phase_10_cron_jobs',
+    up: (db) => {
+      // Phase 10: cron jobs. The runner is a singleton 30s tick that fires
+      // any job whose next_run has elapsed. Built-in action types call
+      // existing services (agent-health, memory summarizer, auto-propose,
+      // codebase scan, custom HTTP webhook).
+      console.log('[Migration 035] Creating cron_jobs table');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS cron_jobs (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          schedule TEXT NOT NULL,
+          action_type TEXT NOT NULL CHECK(action_type IN (
+            'codebase_scan', 'memory_summarize', 'agent_health_check',
+            'auto_propose', 'custom'
+          )),
+          action_config TEXT NOT NULL DEFAULT '{}',
+          last_run TEXT,
+          last_run_status TEXT,
+          next_run TEXT,
+          enabled INTEGER DEFAULT 1,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled_next ON cron_jobs(enabled, next_run)`);
+
+      // Seed the two built-in defaults if no rows exist yet.
+      const count = (db.prepare(`SELECT COUNT(*) as n FROM cron_jobs`).get() as { n: number }).n;
+      if (count === 0) {
+        db.prepare(`
+          INSERT INTO cron_jobs (id, name, schedule, action_type, action_config, enabled, created_at)
+          VALUES (lower(hex(randomblob(16))), 'Agent Health Check', '@every 5m', 'agent_health_check', '{}', 1, datetime('now'))
+        `).run();
+        db.prepare(`
+          INSERT INTO cron_jobs (id, name, schedule, action_type, action_config, enabled, created_at)
+          VALUES (lower(hex(randomblob(16))), 'Memory Summarize', '@hourly', 'memory_summarize', '{}', 1, datetime('now'))
+        `).run();
+        console.log('[Migration 035] Seeded 2 default cron jobs');
+      }
+    }
   }
 ];
 
