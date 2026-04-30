@@ -92,6 +92,19 @@ export async function POST(
       );
     }
 
+    // Idempotency: once Fury has emitted a final spec and we've moved the
+    // mission past 'planning', polling again must NOT re-read the same spec
+    // and create duplicate subtasks. Bail out cleanly.
+    if (convoy.mission_stage !== 'planning') {
+      return NextResponse.json({
+        is_complete: true,
+        new_questions: 0,
+        created_subtasks: 0,
+        mission_stage: convoy.mission_stage,
+        already_advanced: true,
+      });
+    }
+
     const sessionKey = getMissionPlanningSessionKey(id);
 
     // Pull all assistant messages from Fury's session
