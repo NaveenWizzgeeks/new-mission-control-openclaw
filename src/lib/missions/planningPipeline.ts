@@ -38,6 +38,9 @@ export interface MissionContext {
 export interface GeneratedQuestion {
   category: string; // 'scope' | 'tech' | 'constraints' | 'edge_cases' | 'success' | etc.
   question: string;
+  // 3 distinct, mission-relevant choices. The API layer adds an "Other" option
+  // before persisting so the user can always type a free-form answer.
+  options: string[];
 }
 
 export interface GeneratedSubtask {
@@ -52,18 +55,24 @@ export interface GeneratedSubtask {
 
 const QUESTION_PROMPT = `You are Fury, the planning agent for Autensa Mission Control. You decompose missions into work plans for an AI agent team.
 
-A mission has just been created. Before generating subtasks, ask 3 to 7 sharp clarifying questions that will materially change the work plan if answered differently. Aim for questions about: scope boundaries, technical constraints, success criteria, edge cases, and integration points.
+A mission has just been created. Before generating subtasks, ask 3 to 5 sharp clarifying questions that will materially change the work plan if answered differently. Aim for questions about: scope boundaries, technical constraints, success criteria, edge cases, and integration points.
 
 Skip questions whose answers are already obvious from the mission description.
+
+For EACH question, propose exactly 3 plausible, distinct, concise answer options the user is likely to pick. The options must be specific to this mission — not generic placeholders. The user will also have an "Other" escape hatch (you do NOT need to include it).
 
 Return ONLY a JSON object with this exact shape:
 {
   "questions": [
-    { "category": "scope|tech|constraints|edge_cases|success|integration", "question": "..." }
+    {
+      "category": "scope|tech|constraints|edge_cases|success|integration",
+      "question": "...",
+      "options": ["Option A label", "Option B label", "Option C label"]
+    }
   ]
 }
 
-No prose, no markdown, no commentary.
+No prose, no markdown, no commentary. Options must be unique strings under 80 characters each.
 
 MISSION:
 Title: {{TITLE}}
@@ -123,16 +132,54 @@ function fillTemplate(template: string, mission: MissionContext, qaBlock?: strin
     .replace('{{QA_BLOCK}}', qaBlock || '(none)');
 }
 
-// Fallback questions when the gateway can't be reached. These are intentionally
-// generic — the UI flow still works end-to-end and the user can answer them
-// before subtask generation. Once we wire a working Fury RPC path (Phase 5b),
-// this fallback only fires on real gateway outages.
+// Fallback questions when the gateway can't be reached. Generic options give
+// the user something to click; "Other" is appended later by the API layer.
 const FALLBACK_QUESTIONS: GeneratedQuestion[] = [
-  { category: 'scope', question: 'What is explicitly IN scope for this mission, and what is OUT of scope?' },
-  { category: 'success', question: 'What does "done" look like? Any specific tests, metrics, or acceptance criteria?' },
-  { category: 'tech', question: 'Are there technical constraints, frameworks, or libraries the team must use (or avoid)?' },
-  { category: 'edge_cases', question: 'What edge cases or failure modes worry you the most?' },
-  { category: 'integration', question: 'Does this work need to integrate with existing code or systems? If so, where?' },
+  {
+    category: 'scope',
+    question: 'How tightly scoped should this mission be?',
+    options: [
+      'Minimum viable — just the core change, nothing else',
+      'Standard — core change plus reasonable polish',
+      'Comprehensive — also tackle adjacent improvements',
+    ],
+  },
+  {
+    category: 'success',
+    question: 'How will we know this mission is done?',
+    options: [
+      'Manual smoke test by the user',
+      'Automated tests pass (unit + integration)',
+      'Specific metric or acceptance criterion is met',
+    ],
+  },
+  {
+    category: 'tech',
+    question: 'Are there strong technical constraints to respect?',
+    options: [
+      'No constraints — pick the best fit',
+      'Match the existing stack and patterns',
+      'Use a specific library or approach (state in Other)',
+    ],
+  },
+  {
+    category: 'edge_cases',
+    question: 'Which failure modes deserve the most attention?',
+    options: [
+      'Happy path is enough; cover edges later',
+      'Standard error handling and validation',
+      'Adversarial / production-grade resilience',
+    ],
+  },
+  {
+    category: 'integration',
+    question: 'Should this work touch existing code or stand alone?',
+    options: [
+      'Stand-alone, no integration needed',
+      'Light integration — call existing APIs',
+      'Deep integration — extend existing modules',
+    ],
+  },
 ];
 
 const FALLBACK_SUBTASKS: GeneratedSubtask[] = [
@@ -175,18 +222,24 @@ async function tryCompleteJSON<T>(prompt: string, opts: Parameters<typeof comple
  * gateway is unreachable, falls back to a generic question set so the UI flow
  * stays functional.
  */
-export async function generateClarifyingQuestions(mission: MissionContext): Promise<Array<{
+interface InsertedQuestion {
   id: string;
   question: string;
   category: string;
+  question_type: 'multiple_choice';
+  options: Array<{ id: string; label: string }>;
   sort_order: number;
-}>> {
+}
+
+const OPTION_IDS = ['a', 'b', 'c', 'd', 'e', 'f'];
+
+export async function generateClarifyingQuestions(mission: MissionContext): Promise<InsertedQuestion[]> {
   const prompt = fillTemplate(QUESTION_PROMPT, mission);
 
   const result = await tryCompleteJSON<{ questions: GeneratedQuestion[] }>(prompt, {
     model: PLANNER_MODEL,
     temperature: 0.4,
-    maxTokens: 2000,
+    maxTokens: 2500,
   });
 
   let questions: GeneratedQuestion[];
@@ -195,30 +248,54 @@ export async function generateClarifyingQuestions(mission: MissionContext): Prom
   } else {
     questions = FALLBACK_QUESTIONS;
   }
-  const data = { questions };
-  if (!data || !Array.isArray(data.questions) || data.questions.length === 0) {
+  if (!questions.length) {
     throw new Error('Planner returned no questions');
   }
 
   const db = getDb();
   const now = new Date().toISOString();
-  const inserted: Array<{ id: string; question: string; category: string; sort_order: number }> = [];
+  const inserted: InsertedQuestion[] = [];
 
   const tx = db.transaction(() => {
-    // Replace any prior unanswered questions for this mission to avoid duplicate sets
+    // Replace any prior unanswered questions for this mission to avoid duplicates
     db.prepare(`DELETE FROM planning_questions WHERE task_id = ? AND answer IS NULL`).run(mission.parent_task_id);
 
     const stmt = db.prepare(`
-      INSERT INTO planning_questions (id, task_id, category, question, question_type, sort_order, created_at)
-      VALUES (?, ?, ?, ?, 'text', ?, ?)
+      INSERT INTO planning_questions (id, task_id, category, question, question_type, options, sort_order, created_at)
+      VALUES (?, ?, ?, ?, 'multiple_choice', ?, ?, ?)
     `);
-    data.questions.slice(0, 7).forEach((q, idx) => {
+    questions.slice(0, 7).forEach((q, idx) => {
       const id = uuidv4();
       const category = (q.category || 'general').slice(0, 50);
       const question = (q.question || '').trim();
       if (!question) return;
-      stmt.run(id, mission.parent_task_id, category, question, idx, now);
-      inserted.push({ id, question, category, sort_order: idx });
+
+      // Build the option set: 3 AI-suggested distinct options + "Other"
+      const aiOptions = (Array.isArray(q.options) ? q.options : [])
+        .map(o => (typeof o === 'string' ? o.trim() : ''))
+        .filter(Boolean)
+        .slice(0, 3);
+
+      // De-dupe and pad if the planner gave fewer than 3
+      const seen = new Set<string>();
+      const cleanOptions: string[] = [];
+      for (const o of aiOptions) {
+        const key = o.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          cleanOptions.push(o.slice(0, 200));
+        }
+      }
+      while (cleanOptions.length < 3) cleanOptions.push(`Suggestion ${cleanOptions.length + 1}`);
+
+      const options: Array<{ id: string; label: string }> = cleanOptions.map((label, i) => ({
+        id: OPTION_IDS[i],
+        label,
+      }));
+      options.push({ id: 'other', label: 'Other' });
+
+      stmt.run(id, mission.parent_task_id, category, question, JSON.stringify(options), idx, now);
+      inserted.push({ id, question, category, question_type: 'multiple_choice', options, sort_order: idx });
     });
   });
   tx();

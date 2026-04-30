@@ -199,8 +199,21 @@ export function MissionListCard({ mission, workspaceSlug, onStageChange, onDelet
     }
   };
 
+  // Whole card is a link to the mission detail (pipeline view). Action buttons
+  // and the ⋮ menu use stopPropagation so they don't trigger the navigation.
   return (
-    <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-4 hover:border-mc-accent/40 transition-colors">
+    <div
+      onClick={() => router.push(detailHref)}
+      className="group bg-mc-bg-secondary border border-mc-border rounded-xl p-4 hover:border-mc-accent/40 hover:bg-mc-bg-secondary/70 transition-colors cursor-pointer"
+      role="link"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          router.push(detailHref);
+        }
+      }}
+    >
       {/* Header row */}
       <div className="flex items-start gap-3 mb-2">
         <span
@@ -210,13 +223,13 @@ export function MissionListCard({ mission, workspaceSlug, onStageChange, onDelet
           {badge.label}
         </span>
 
-        <Link href={detailHref} className="flex-1 min-w-0 group">
+        <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold text-mc-text leading-snug truncate group-hover:text-mc-accent transition-colors">
             {mission.parent_task.title}
           </h3>
-        </Link>
+        </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
           {action.href ? (
             <Link
               href={action.href}

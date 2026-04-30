@@ -3,24 +3,20 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, FileText, ListTodo, Activity, FlaskConical } from 'lucide-react';
+import { ChevronLeft, FlaskConical } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { MissionQueue } from '@/components/MissionQueue';
 import { LiveFeed } from '@/components/LiveFeed';
+import { AgentsSidebar } from '@/components/AgentsSidebar';
 import { SSEDebugPanel } from '@/components/SSEDebugPanel';
+import { MissionPipelineStepper } from '@/components/mission/MissionPipelineStepper';
 import { MissionOverviewTab, type MissionDetail } from '@/components/mission/MissionOverviewTab';
 import { useMissionControl } from '@/lib/store';
 import { useSSE } from '@/hooks/useSSE';
 import type { Workspace, MissionStage } from '@/lib/types';
 
-type TabKey = 'overview' | 'tasks' | 'feed' | 'tests';
-
-interface TabConfig {
-  key: TabKey;
-  label: string;
-  icon: React.ReactNode;
-  visible: boolean;
-}
+export type MissionTabKey = 'overview' | 'tasks' | 'tests';
+type TabKey = MissionTabKey;
 
 export default function MissionDrilldownPage() {
   const params = useParams();
@@ -40,7 +36,7 @@ export default function MissionDrilldownPage() {
   useEffect(() => {
     const fromHash = (): TabKey => {
       const h = window.location.hash.replace('#', '');
-      return (['overview', 'tasks', 'feed', 'tests'] as const).includes(h as TabKey) ? (h as TabKey) : 'overview';
+      return (['overview', 'tasks', 'tests'] as const).includes(h as TabKey) ? (h as TabKey) : 'overview';
     };
     setTab(fromHash());
     const onHash = () => setTab(fromHash());
@@ -151,12 +147,6 @@ export default function MissionDrilldownPage() {
   }
 
   const showTests = mission.mission_stage === 'testing' || mission.mission_stage === 'done';
-  const tabs: TabConfig[] = [
-    { key: 'overview', label: 'Overview', icon: <FileText className="w-3.5 h-3.5" />, visible: true },
-    { key: 'tasks', label: 'Task Board', icon: <ListTodo className="w-3.5 h-3.5" />, visible: true },
-    { key: 'feed', label: 'Live Feed', icon: <Activity className="w-3.5 h-3.5" />, visible: true },
-    { key: 'tests', label: 'Test Results', icon: <FlaskConical className="w-3.5 h-3.5" />, visible: showTests },
-  ];
 
   const handleStageChange = (newStage: MissionStage) => {
     setMission(m => (m ? { ...m, mission_stage: newStage } : m));
@@ -166,36 +156,24 @@ export default function MissionDrilldownPage() {
     <>
       <Header workspace={workspace} isPortrait={false} />
 
-      {/* Breadcrumb + tabs */}
-      <div className="border-b border-mc-border bg-mc-bg-secondary/30 px-4 pt-2 flex-shrink-0">
+      {/* Breadcrumb */}
+      <div className="border-b border-mc-border bg-mc-bg-secondary/30 px-4 pt-2 pb-2 flex-shrink-0">
         <Link
           href={`/workspace/${slug}`}
-          className="inline-flex items-center gap-1 text-xs text-mc-text-secondary hover:text-mc-text transition-colors mb-2"
+          className="inline-flex items-center gap-1 text-xs text-mc-text-secondary hover:text-mc-text transition-colors"
         >
           <ChevronLeft className="w-3.5 h-3.5" />
           Missions / <span className="ml-1 text-mc-text truncate max-w-md">{mission.parent_task.title}</span>
         </Link>
-
-        <nav className="flex items-center gap-0.5">
-          {tabs.filter(t => t.visible).map(t => {
-            const active = tab === t.key;
-            return (
-              <button
-                key={t.key}
-                onClick={() => setTabAndHash(t.key)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
-                  active
-                    ? 'border-mc-accent text-mc-accent'
-                    : 'border-transparent text-mc-text-secondary hover:text-mc-text'
-                }`}
-              >
-                {t.icon}
-                {t.label}
-              </button>
-            );
-          })}
-        </nav>
       </div>
+
+      {/* Pipeline stepper (also drives tab navigation) */}
+      <MissionPipelineStepper
+        currentStage={mission.mission_stage}
+        currentTab={tab}
+        onSelectTab={setTabAndHash}
+        showTests={showTests}
+      />
 
       {/* Tab body */}
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -212,12 +190,8 @@ export default function MissionDrilldownPage() {
 
         {tab === 'tasks' && (
           <div className="flex flex-1 overflow-hidden">
+            <AgentsSidebar workspaceId={workspace.id} />
             <MissionQueue workspaceId={workspace.id} convoyId={missionId} />
-          </div>
-        )}
-
-        {tab === 'feed' && (
-          <div className="flex flex-1 overflow-hidden">
             <LiveFeed />
           </div>
         )}
