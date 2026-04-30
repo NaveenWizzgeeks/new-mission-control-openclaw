@@ -117,7 +117,12 @@ export function useSSE() {
             case 'convoy_progress':
             case 'convoy_completed':
               debug.sse(`Convoy event: ${sseEvent.type}`, sseEvent.payload);
-              // Convoy events trigger task re-fetch via task_updated events
+              // Re-emit as a DOM CustomEvent so feature-specific listeners
+              // (mission detail page, workspace mission list) can refresh
+              // without coupling them to the SSE EventSource directly.
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent(`mc:${sseEvent.type}`, { detail: { payload: sseEvent.payload } }));
+              }
               break;
 
             case 'agent_health_changed':

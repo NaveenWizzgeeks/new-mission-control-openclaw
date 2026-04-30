@@ -72,6 +72,22 @@ export default function WorkspacePage() {
     return () => clearInterval(poll);
   }, [workspace, loadMissions]);
 
+  // Live refresh: any convoy event from the SSE stream nudges the list to
+  // re-fetch so stage transitions / deletes / new missions appear without a
+  // manual reload. (The 30s poll above is the fallback.)
+  useEffect(() => {
+    if (!workspace) return;
+    const reload = () => loadMissions(workspace.id);
+    window.addEventListener('mc:convoy_progress', reload);
+    window.addEventListener('mc:convoy_completed', reload);
+    window.addEventListener('mc:convoy_created', reload);
+    return () => {
+      window.removeEventListener('mc:convoy_progress', reload);
+      window.removeEventListener('mc:convoy_completed', reload);
+      window.removeEventListener('mc:convoy_created', reload);
+    };
+  }, [workspace, loadMissions]);
+
   const handleStageChange = useCallback((missionId: string, newStage: MissionStage) => {
     setMissions(prev =>
       prev.map(m => m.id === missionId ? { ...m, mission_stage: newStage } : m)

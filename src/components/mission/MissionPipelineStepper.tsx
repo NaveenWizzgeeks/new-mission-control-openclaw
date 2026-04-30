@@ -3,7 +3,7 @@
 import { FileText, MessageSquareQuote, ListTodo, FlaskConical, CheckCircle2, ChevronRight } from 'lucide-react';
 import type { MissionStage } from '@/lib/types';
 
-export type MissionTabKey = 'overview' | 'tasks' | 'tests';
+export type MissionTabKey = 'overview' | 'tasks' | 'team' | 'tests';
 
 interface PipelineStep {
   key: MissionTabKey;
@@ -67,7 +67,7 @@ export function MissionPipelineStepper({ currentStage, currentTab, onSelectTab, 
   const activeStageIdx = steps.findIndex(s => s.stages.includes(currentStage));
 
   return (
-    <div className="border-b border-mc-border bg-mc-bg-secondary/30 px-4 py-3 flex-shrink-0">
+    <div className="py-3">
       <ol className="flex items-center gap-1 overflow-x-auto" aria-label="Mission pipeline">
         {steps.map((step, idx) => {
           // Visual state:

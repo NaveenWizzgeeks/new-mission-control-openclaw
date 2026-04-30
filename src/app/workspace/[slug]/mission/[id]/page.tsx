@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, FlaskConical } from 'lucide-react';
+import { ChevronLeft, FlaskConical, Users } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { MissionQueue } from '@/components/MissionQueue';
 import { LiveFeed } from '@/components/LiveFeed';
@@ -11,11 +11,12 @@ import { AgentsSidebar } from '@/components/AgentsSidebar';
 import { SSEDebugPanel } from '@/components/SSEDebugPanel';
 import { MissionPipelineStepper } from '@/components/mission/MissionPipelineStepper';
 import { MissionOverviewTab, type MissionDetail } from '@/components/mission/MissionOverviewTab';
+import { MissionTeamTab } from '@/components/mission/MissionTeamTab';
 import { useMissionControl } from '@/lib/store';
 import { useSSE } from '@/hooks/useSSE';
 import type { Workspace, MissionStage } from '@/lib/types';
 
-export type MissionTabKey = 'overview' | 'tasks' | 'tests';
+export type MissionTabKey = 'overview' | 'tasks' | 'team' | 'tests';
 type TabKey = MissionTabKey;
 
 export default function MissionDrilldownPage() {
@@ -36,7 +37,7 @@ export default function MissionDrilldownPage() {
   useEffect(() => {
     const fromHash = (): TabKey => {
       const h = window.location.hash.replace('#', '');
-      return (['overview', 'tasks', 'tests'] as const).includes(h as TabKey) ? (h as TabKey) : 'overview';
+      return (['overview', 'tasks', 'team', 'tests'] as const).includes(h as TabKey) ? (h as TabKey) : 'overview';
     };
     setTab(fromHash());
     const onHash = () => setTab(fromHash());
@@ -77,6 +78,28 @@ export default function MissionDrilldownPage() {
   }, [missionId]);
 
   useEffect(() => { loadMission(); }, [loadMission]);
+
+  // Live-update the mission card when convoy/mission events arrive over SSE.
+  // useSSE() processes the global stream (which feeds the tasks store), but
+  // convoy_progress / mission_stage_changed are not currently dispatched into
+  // store updates — so the mission detail page misses stage transitions
+  // unless the user reloads. Subscribing here fills that gap.
+  useEffect(() => {
+    const onMissionEvent = (e: Event) => {
+      const evt = e as CustomEvent<{ missionId?: string; convoyId?: string; payload?: { id?: string } }>;
+      const detail = evt.detail || {};
+      const id = detail.missionId || detail.convoyId || detail.payload?.id;
+      if (!id || id === missionId) loadMission();
+    };
+    window.addEventListener('mc:convoy_progress', onMissionEvent as EventListener);
+    window.addEventListener('mc:convoy_completed', onMissionEvent as EventListener);
+    window.addEventListener('mc:convoy_created', onMissionEvent as EventListener);
+    return () => {
+      window.removeEventListener('mc:convoy_progress', onMissionEvent as EventListener);
+      window.removeEventListener('mc:convoy_completed', onMissionEvent as EventListener);
+      window.removeEventListener('mc:convoy_created', onMissionEvent as EventListener);
+    };
+  }, [missionId, loadMission]);
 
   useEffect(() => {
     if (!workspace) return;
@@ -167,13 +190,30 @@ export default function MissionDrilldownPage() {
         </Link>
       </div>
 
-      {/* Pipeline stepper (also drives tab navigation) */}
-      <MissionPipelineStepper
-        currentStage={mission.mission_stage}
-        currentTab={tab}
-        onSelectTab={setTabAndHash}
-        showTests={showTests}
-      />
+      {/* Pipeline stepper + utility tabs (Team) */}
+      <div className="border-b border-mc-border bg-mc-bg-secondary/30 flex items-center justify-between gap-3 px-4 flex-shrink-0">
+        <div className="flex-1 min-w-0">
+          <MissionPipelineStepper
+            currentStage={mission.mission_stage}
+            currentTab={tab}
+            onSelectTab={setTabAndHash}
+            showTests={showTests}
+          />
+        </div>
+        <button
+          onClick={() => setTabAndHash('team')}
+          aria-current={tab === 'team' ? 'page' : undefined}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shrink-0 ${
+            tab === 'team'
+              ? 'bg-mc-accent text-mc-bg'
+              : 'bg-mc-bg-tertiary text-mc-text-secondary hover:bg-mc-bg-tertiary/70 hover:text-mc-text'
+          }`}
+          title="Workflow + role assignments for this mission"
+        >
+          <Users className="w-3.5 h-3.5" />
+          Team
+        </button>
+      </div>
 
       {/* Tab body */}
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -193,6 +233,16 @@ export default function MissionDrilldownPage() {
             <AgentsSidebar workspaceId={workspace.id} />
             <MissionQueue workspaceId={workspace.id} convoyId={missionId} />
             <LiveFeed />
+          </div>
+        )}
+
+        {tab === 'team' && (
+          <div className="flex-1 overflow-y-auto p-6">
+            <MissionTeamTab
+              missionId={missionId}
+              parentTaskId={mission.parent_task.id}
+              workspaceId={workspace.id}
+            />
           </div>
         )}
 
