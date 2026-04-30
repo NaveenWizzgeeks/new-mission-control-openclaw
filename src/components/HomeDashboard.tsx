@@ -3,6 +3,9 @@
 import { HeroStats } from './dashboard/HeroStats';
 import { AgentRoster } from './dashboard/AgentRoster';
 import { WorkspacesList } from './dashboard/WorkspacesList';
+import { RecentMissions } from './dashboard/RecentMissions';
+import { RecentActivity } from './dashboard/RecentActivity';
+import { TokenUsageCard } from './dashboard/TokenUsageCard';
 
 export function HomeDashboard() {
   return (
@@ -21,6 +24,15 @@ export function HomeDashboard() {
           </div>
           <AgentRoster />
         </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2">
+            <RecentMissions />
+          </div>
+          <TokenUsageCard />
+        </div>
+
+        <RecentActivity />
       </div>
     </main>
   );
