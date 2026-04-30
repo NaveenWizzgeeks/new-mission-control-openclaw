@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { MissionStage, Task } from '@/lib/types';
+import { ClarificationChat } from './ClarificationChat';
 
 export interface MissionDetail {
   id: string;
@@ -59,7 +60,7 @@ interface MissionOverviewTabProps {
   onMissionUpdated?: () => void;
 }
 
-export function MissionOverviewTab({ mission, onStageChange, onMissionUpdated }: MissionOverviewTabProps) {
+export function MissionOverviewTab({ mission, workspaceSlug, onStageChange, onMissionUpdated }: MissionOverviewTabProps) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,8 +86,26 @@ export function MissionOverviewTab({ mission, onStageChange, onMissionUpdated }:
       }
       onStageChange?.(next);
       onMissionUpdated?.();
-      // Navigating to the kanban after starting work feels natural
       if (next === 'in_progress' || next === 'planning') router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // "Start Planning" calls the dedicated endpoint that triggers Fury's question
+  // generation + flips mission_stage to 'planning' atomically.
+  const startPlanning = async () => {
+    setBusy('planning');
+    setError(null);
+    try {
+      const res = await fetch(`/api/missions/${mission.id}/start-planning`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || `Failed (${res.status})`);
+        return;
+      }
+      onStageChange?.('planning');
+      onMissionUpdated?.();
     } finally {
       setBusy(null);
     }
@@ -123,7 +142,7 @@ export function MissionOverviewTab({ mission, onStageChange, onMissionUpdated }:
         {/* Action row */}
         <div className="flex items-center gap-2 mt-4 pt-4 border-t border-mc-border">
           {showStartPlanning && (
-            <ActionButton onClick={() => setStage('planning')} busy={busy === 'planning'} primary icon={<Play className="w-3.5 h-3.5" />}>
+            <ActionButton onClick={startPlanning} busy={busy === 'planning'} primary icon={<Play className="w-3.5 h-3.5" />}>
               Start Planning
             </ActionButton>
           )}
@@ -222,18 +241,13 @@ export function MissionOverviewTab({ mission, onStageChange, onMissionUpdated }:
         </div>
       )}
 
-      {/* Clarification chat stub for planning phase (Phase 5 will fill this in) */}
+      {/* Clarification chat — visible during planning phase */}
       {mission.mission_stage === 'planning' && (
-        <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-mc-text-secondary mb-2">
-            Fury Clarification
-          </h3>
-          <p className="text-sm text-mc-text-secondary">
-            The Fury planning pipeline (Q&amp;A → subtask generation) lands in Phase 5. This panel will host
-            the clarification chat once that phase ships. For now you can move the mission to In Progress
-            manually using the action buttons above, or add subtasks from the Task Board tab.
-          </p>
-        </div>
+        <ClarificationChat
+          missionId={mission.id}
+          workspaceSlug={workspaceSlug}
+          onMissionAdvanced={onMissionUpdated}
+        />
       )}
     </div>
   );

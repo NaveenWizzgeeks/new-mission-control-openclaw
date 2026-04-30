@@ -110,11 +110,8 @@ export function MissionListCard({ mission, workspaceSlug, onStageChange, onDelet
         setBusy(true);
         setError(null);
         try {
-          const res = await fetch(`/api/missions/${mission.id}/stage`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stage: 'planning' }),
-          });
+          // Triggers Fury question generation + advances stage atomically
+          const res = await fetch(`/api/missions/${mission.id}/start-planning`, { method: 'POST' });
           if (!res.ok) {
             const data = await res.json().catch(() => ({}));
             setError(data.error || `Start failed (${res.status})`);
