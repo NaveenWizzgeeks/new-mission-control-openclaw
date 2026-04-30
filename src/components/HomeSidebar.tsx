@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Rocket, Activity, ChevronLeft, ChevronRight, Briefcase, Bot, BarChart3, Clock, MessageSquare } from 'lucide-react';
+import { Rocket, Activity, ChevronLeft, ChevronRight, Briefcase, Bot, BarChart3, Clock, MessageSquare, Home } from 'lucide-react';
 import { SidebarSessions } from './sidebar/SidebarSessions';
 import { SidebarTokens } from './sidebar/SidebarTokens';
 import { ThemeToggle } from './ThemeToggle';
@@ -12,6 +12,9 @@ const STORAGE_KEY = 'mc-sidebar-collapsed';
 
 function isActiveLink(pathname: string | null, href: string): boolean {
   if (!pathname) return false;
+  // Dashboard `/` is exact-match only — every path startsWith('/') so the
+  // generic prefix check below would otherwise light it up everywhere.
+  if (href === '/') return pathname === '/';
   if (pathname === href) return true;
   if (pathname.startsWith(href + '/')) return true;
   // /workspaces nav also lights up when inside a workspace drilldown
@@ -63,6 +66,7 @@ export function HomeSidebar() {
 
       {/* Nav links */}
       <nav className="px-2 py-3 flex flex-col gap-0.5 flex-shrink-0">
+        <NavLink href="/" label="Dashboard" icon={<Home className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/workspaces" label="Workspaces" icon={<Briefcase className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/agents" label="Agents" icon={<Bot className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/chat" label="Chat" icon={<MessageSquare className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
