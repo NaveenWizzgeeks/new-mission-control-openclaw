@@ -79,6 +79,28 @@ export default function MissionDrilldownPage() {
 
   useEffect(() => { loadMission(); }, [loadMission]);
 
+  // Auto-poll for new follow-up proposals while the mission is in_progress.
+  // The PATCH-on-task-done hook fires triggerProposal server-side; this poll
+  // harvests Fury's reply and inserts planner_proposed rows. Stops polling
+  // when the mission isn't in_progress anymore.
+  useEffect(() => {
+    if (!mission || mission.mission_stage !== 'in_progress') return;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(`/api/missions/${missionId}/proposals/poll`, { method: 'POST' });
+        if (res.ok) {
+          const data = await res.json() as { inserted: number; total_proposed: number };
+          if (data.inserted > 0) loadMission();
+        }
+      } catch { /* ignore — next tick will retry */ }
+    };
+    tick();
+    const t = setInterval(tick, 15_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [mission, missionId, loadMission]);
+
   // Live-update the mission card when convoy/mission events arrive over SSE.
   // useSSE() processes the global stream (which feeds the tasks store), but
   // convoy_progress / mission_stage_changed are not currently dispatched into
@@ -198,6 +220,7 @@ export default function MissionDrilldownPage() {
             currentTab={tab}
             onSelectTab={setTabAndHash}
             showTests={showTests}
+            proposedCount={mission.proposed_tasks_count ?? 0}
           />
         </div>
         <button

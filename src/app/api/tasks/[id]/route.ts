@@ -443,6 +443,27 @@ export async function PATCH(
           dispatchReadyConvoySubtasks(existing.convoy_id).catch(err =>
             console.error('[Convoy] auto-drain after subtask done failed:', err)
           );
+
+          // Nexus auto-propose: when the LAST non-proposed subtask hits done,
+          // ask Fury for follow-ups. Counts only initial subtasks (status !=
+          // 'planner_proposed') so a half-approved proposal set doesn't
+          // re-trigger the loop. Idempotency on the harvest side dedupes.
+          const convoyId = existing.convoy_id;
+          import('@/lib/db').then(({ getDb }) => {
+            const db = getDb();
+            const open = db.prepare(`
+              SELECT COUNT(*) as n FROM convoy_subtasks cs
+              JOIN tasks t ON cs.task_id = t.id
+              WHERE cs.convoy_id = ? AND t.status NOT IN ('done', 'planner_proposed')
+            `).get(convoyId) as { n: number };
+            if (open.n === 0) {
+              import('@/lib/missions/autoPropose').then(({ triggerProposal }) =>
+                triggerProposal(convoyId).catch(err =>
+                  console.error('[Mission auto-propose] trigger failed:', err)
+                )
+              );
+            }
+          });
         }
       } catch (err) {
         console.error('[Convoy] progress update failed:', err);

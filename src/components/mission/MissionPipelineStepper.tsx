@@ -20,9 +20,10 @@ interface MissionPipelineStepperProps {
   currentTab: MissionTabKey;
   onSelectTab: (tab: MissionTabKey) => void;
   showTests: boolean;
+  proposedCount?: number;
 }
 
-export function MissionPipelineStepper({ currentStage, currentTab, onSelectTab, showTests }: MissionPipelineStepperProps) {
+export function MissionPipelineStepper({ currentStage, currentTab, onSelectTab, showTests, proposedCount = 0 }: MissionPipelineStepperProps) {
   const allSteps: PipelineStep[] = [
     {
       key: 'overview',
@@ -93,17 +94,28 @@ export function MissionPipelineStepper({ currentStage, currentTab, onSelectTab, 
             stateClasses = 'bg-mc-bg-tertiary text-mc-text-secondary hover:bg-mc-bg-tertiary/70 hover:text-mc-text';
           }
 
+          // Tasks step gets a badge when Fury has proposed follow-ups
+          const showProposedBadge = step.key === 'tasks' && step.label === 'Tasks' && proposedCount > 0;
+
           return (
             <li key={`${step.key}-${step.label}`} className="flex items-center gap-1 shrink-0">
               <button
                 onClick={() => onSelectTab(step.key)}
                 aria-current={stageActive ? 'step' : undefined}
-                className={`${baseClasses} ${stateClasses}`}
+                className={`${baseClasses} ${stateClasses} relative`}
               >
                 <span className={`shrink-0 ${stageActive && !tabActive ? 'animate-pulse' : ''}`}>
                   {completed ? <CheckCircle2 className="w-3.5 h-3.5" /> : step.icon}
                 </span>
                 {step.label}
+                {showProposedBadge && (
+                  <span
+                    className="ml-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-mc-accent-purple text-white text-[9px] font-bold tabular-nums"
+                    title={`${proposedCount} new task${proposedCount === 1 ? '' : 's'} proposed by Fury`}
+                  >
+                    ✨ {proposedCount}
+                  </span>
+                )}
               </button>
               {idx < steps.length - 1 && (
                 <ChevronRight className="w-3.5 h-3.5 text-mc-text-secondary/50 shrink-0" />
