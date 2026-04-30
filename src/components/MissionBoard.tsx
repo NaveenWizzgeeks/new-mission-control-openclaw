@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Plus } from 'lucide-react';
 import { MissionCard, type MissionCardData } from './MissionCard';
 import type { MissionStage } from '@/lib/types';
 
@@ -18,7 +17,6 @@ interface MissionBoardProps {
   workspaceSlug: string;
   workspaceId: string;
   onStageChange?: (missionId: string, newStage: MissionStage) => void;
-  onCreateMission?: () => void;
 }
 
 export function MissionBoard({
@@ -26,7 +24,6 @@ export function MissionBoard({
   workspaceSlug,
   workspaceId,
   onStageChange,
-  onCreateMission,
 }: MissionBoardProps) {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<MissionStage | null>(null);
@@ -139,17 +136,6 @@ export function MissionBoard({
           );
         })}
       </div>
-
-      {/* Create button — floating bottom-right */}
-      {onCreateMission && (
-        <button
-          onClick={onCreateMission}
-          className="fixed bottom-6 right-6 z-30 flex items-center gap-2 px-4 py-2.5 bg-mc-accent text-mc-bg rounded-lg font-medium text-sm shadow-lg hover:bg-mc-accent/90 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          New Mission
-        </button>
-      )}
     </div>
   );
 }
