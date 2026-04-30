@@ -88,7 +88,7 @@ export default function MissionDrilldownPage() {
 
   if (notFound) {
     return (
-      <div className="min-h-screen bg-mc-bg flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
           <div className="text-6xl mb-4">🔍</div>
           <h1 className="text-2xl font-bold mb-2">Not Found</h1>
@@ -103,7 +103,7 @@ export default function MissionDrilldownPage() {
 
   if (isLoading || !workspace) {
     return (
-      <div className="min-h-screen bg-mc-bg flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
           <div className="text-4xl mb-4 animate-pulse">🦞</div>
           <p className="text-mc-text-secondary">Loading mission...</p>
@@ -113,7 +113,7 @@ export default function MissionDrilldownPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-mc-bg overflow-hidden">
+    <>
       <Header workspace={workspace} isPortrait={false} />
 
       {/* Back breadcrumb */}
@@ -135,6 +135,6 @@ export default function MissionDrilldownPage() {
       </div>
 
       <SSEDebugPanel />
-    </div>
+    </>
   );
 }

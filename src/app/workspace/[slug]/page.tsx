@@ -75,7 +75,7 @@ export default function WorkspacePage() {
 
   if (notFound) {
     return (
-      <div className="min-h-screen bg-mc-bg flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
           <div className="text-6xl mb-4">🔍</div>
           <h1 className="text-2xl font-bold mb-2">Workspace Not Found</h1>
@@ -91,7 +91,7 @@ export default function WorkspacePage() {
 
   if (isLoading || !workspace) {
     return (
-      <div className="min-h-screen bg-mc-bg flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
           <div className="text-4xl mb-4 animate-pulse">🦞</div>
           <p className="text-mc-text-secondary">Loading {slug}...</p>
@@ -101,7 +101,7 @@ export default function WorkspacePage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-mc-bg overflow-hidden">
+    <>
       <Header workspace={workspace} isPortrait={false} />
 
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -136,6 +136,6 @@ export default function WorkspacePage() {
       )}
 
       <SSEDebugPanel />
-    </div>
+    </>
   );
 }

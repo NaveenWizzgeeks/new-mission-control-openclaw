@@ -25,5 +25,9 @@ export default function WorkspaceActivityPage() {
     loadWorkspace();
   }, [slug]);
 
-  return <AgentActivityDashboard workspace={workspace} />;
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <AgentActivityDashboard workspace={workspace} />
+    </div>
+  );
 }
