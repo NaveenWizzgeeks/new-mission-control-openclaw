@@ -1,17 +1,26 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, FileText, ListTodo, Activity, FlaskConical } from 'lucide-react';
 import { Header } from '@/components/Header';
-import { AgentsSidebar } from '@/components/AgentsSidebar';
 import { MissionQueue } from '@/components/MissionQueue';
 import { LiveFeed } from '@/components/LiveFeed';
 import { SSEDebugPanel } from '@/components/SSEDebugPanel';
+import { MissionOverviewTab, type MissionDetail } from '@/components/mission/MissionOverviewTab';
 import { useMissionControl } from '@/lib/store';
 import { useSSE } from '@/hooks/useSSE';
-import type { Workspace } from '@/lib/types';
+import type { Workspace, MissionStage } from '@/lib/types';
+
+type TabKey = 'overview' | 'tasks' | 'feed' | 'tests';
+
+interface TabConfig {
+  key: TabKey;
+  label: string;
+  icon: React.ReactNode;
+  visible: boolean;
+}
 
 export default function MissionDrilldownPage() {
   const params = useParams();
@@ -21,17 +30,35 @@ export default function MissionDrilldownPage() {
   const { setAgents, setTasks, setEvents, setIsOnline, setIsLoading, isLoading } = useMissionControl();
 
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [mission, setMission] = useState<MissionDetail | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [tab, setTab] = useState<TabKey>('overview');
 
   useSSE();
+
+  // Hydrate tab from URL hash and keep it synced.
+  useEffect(() => {
+    const fromHash = (): TabKey => {
+      const h = window.location.hash.replace('#', '');
+      return (['overview', 'tasks', 'feed', 'tests'] as const).includes(h as TabKey) ? (h as TabKey) : 'overview';
+    };
+    setTab(fromHash());
+    const onHash = () => setTab(fromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const setTabAndHash = (next: TabKey) => {
+    setTab(next);
+    if (typeof window !== 'undefined') window.history.replaceState(null, '', `#${next}`);
+  };
 
   useEffect(() => {
     async function loadWorkspace() {
       try {
         const res = await fetch(`/api/workspaces/${slug}`);
-        if (res.ok) {
-          setWorkspace(await res.json());
-        } else if (res.status === 404) {
+        if (res.ok) setWorkspace(await res.json());
+        else if (res.status === 404) {
           setNotFound(true);
           setIsLoading(false);
         }
@@ -42,6 +69,18 @@ export default function MissionDrilldownPage() {
     }
     loadWorkspace();
   }, [slug, setIsLoading]);
+
+  const loadMission = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/missions/${missionId}`);
+      if (res.ok) setMission(await res.json());
+      else if (res.status === 404) setNotFound(true);
+    } catch (err) {
+      console.error('[MissionDrilldown] mission fetch failed:', err);
+    }
+  }, [missionId]);
+
+  useEffect(() => { loadMission(); }, [loadMission]);
 
   useEffect(() => {
     if (!workspace) return;
@@ -58,7 +97,7 @@ export default function MissionDrilldownPage() {
         if (tasksRes.ok) setTasks(await tasksRes.json());
         if (eventsRes.ok) setEvents(await eventsRes.json());
       } catch (err) {
-        console.error('[MissionDrilldown] Failed to load data:', err);
+        console.error('[MissionDrilldown] data load failed:', err);
       } finally {
         setIsLoading(false);
       }
@@ -82,7 +121,6 @@ export default function MissionDrilldownPage() {
         if (res.ok) setEvents(await res.json());
       } catch {}
     }, 30_000);
-
     return () => clearInterval(eventPoll);
   }, [workspace, setAgents, setTasks, setEvents, setIsOnline, setIsLoading]);
 
@@ -101,7 +139,7 @@ export default function MissionDrilldownPage() {
     );
   }
 
-  if (isLoading || !workspace) {
+  if (isLoading || !workspace || !mission) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
@@ -112,26 +150,87 @@ export default function MissionDrilldownPage() {
     );
   }
 
+  const showTests = mission.mission_stage === 'testing' || mission.mission_stage === 'done';
+  const tabs: TabConfig[] = [
+    { key: 'overview', label: 'Overview', icon: <FileText className="w-3.5 h-3.5" />, visible: true },
+    { key: 'tasks', label: 'Task Board', icon: <ListTodo className="w-3.5 h-3.5" />, visible: true },
+    { key: 'feed', label: 'Live Feed', icon: <Activity className="w-3.5 h-3.5" />, visible: true },
+    { key: 'tests', label: 'Test Results', icon: <FlaskConical className="w-3.5 h-3.5" />, visible: showTests },
+  ];
+
+  const handleStageChange = (newStage: MissionStage) => {
+    setMission(m => (m ? { ...m, mission_stage: newStage } : m));
+  };
+
   return (
     <>
       <Header workspace={workspace} isPortrait={false} />
 
-      {/* Back breadcrumb */}
-      <div className="px-4 py-2 border-b border-mc-border flex items-center gap-2 flex-shrink-0">
+      {/* Breadcrumb + tabs */}
+      <div className="border-b border-mc-border bg-mc-bg-secondary/30 px-4 pt-2 flex-shrink-0">
         <Link
           href={`/workspace/${slug}`}
-          className="flex items-center gap-1 text-xs text-mc-text-secondary hover:text-mc-text transition-colors"
+          className="inline-flex items-center gap-1 text-xs text-mc-text-secondary hover:text-mc-text transition-colors mb-2"
         >
           <ChevronLeft className="w-3.5 h-3.5" />
-          Missions
+          Missions / <span className="ml-1 text-mc-text truncate max-w-md">{mission.parent_task.title}</span>
         </Link>
+
+        <nav className="flex items-center gap-0.5">
+          {tabs.filter(t => t.visible).map(t => {
+            const active = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setTabAndHash(t.key)}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
+                  active
+                    ? 'border-mc-accent text-mc-accent'
+                    : 'border-transparent text-mc-text-secondary hover:text-mc-text'
+                }`}
+              >
+                {t.icon}
+                {t.label}
+              </button>
+            );
+          })}
+        </nav>
       </div>
 
-      {/* 3-pane drilldown: AgentsSidebar | MissionQueue (convoy-scoped) | LiveFeed */}
-      <div className="flex flex-1 overflow-hidden">
-        <AgentsSidebar workspaceId={workspace.id} />
-        <MissionQueue workspaceId={workspace.id} convoyId={missionId} />
-        <LiveFeed />
+      {/* Tab body */}
+      <div className="flex-1 overflow-hidden flex flex-col">
+        {tab === 'overview' && (
+          <div className="flex-1 overflow-y-auto p-6">
+            <MissionOverviewTab
+              mission={mission}
+              workspaceSlug={slug}
+              onStageChange={handleStageChange}
+              onMissionUpdated={loadMission}
+            />
+          </div>
+        )}
+
+        {tab === 'tasks' && (
+          <div className="flex flex-1 overflow-hidden">
+            <MissionQueue workspaceId={workspace.id} convoyId={missionId} />
+          </div>
+        )}
+
+        {tab === 'feed' && (
+          <div className="flex flex-1 overflow-hidden">
+            <LiveFeed />
+          </div>
+        )}
+
+        {tab === 'tests' && (
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="max-w-2xl mx-auto bg-mc-bg-secondary border border-mc-border rounded-xl p-6 text-center text-mc-text-secondary">
+              <FlaskConical className="w-10 h-10 mx-auto mb-3 text-mc-accent-yellow" />
+              <h3 className="text-base font-semibold text-mc-text mb-1">Test Results</h3>
+              <p className="text-sm">Playwright integration arrives in Phase 7. This tab will surface pass/fail counts, per-test details, and a re-run button.</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <SSEDebugPanel />

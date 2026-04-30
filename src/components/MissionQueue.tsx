@@ -19,6 +19,7 @@ interface MissionQueueProps {
 }
 
 const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
+  { id: 'planner_proposed', label: '✨ Proposed', color: 'border-t-mc-accent-purple' },
   { id: 'planning', label: '📋 Planning', color: 'border-t-mc-accent-purple' },
   { id: 'inbox', label: 'Inbox', color: 'border-t-mc-accent-pink' },
   { id: 'assigned', label: 'Assigned', color: 'border-t-mc-accent-yellow' },
@@ -100,6 +101,37 @@ export function MissionQueue({ workspaceId, convoyId, mobileMode = false, isPort
     setPendingMove(null);
     setStatusMoveTask(null);
     await updateTaskStatusWithPersist(task, targetStatus);
+  };
+
+  // Approve a planner-proposed task → moves it to inbox so the existing dispatch flow picks it up.
+  const handleApproveProposed = async (task: Task) => {
+    await updateTaskStatusWithPersist(task, 'inbox');
+  };
+
+  // Reject a planner-proposed task → DELETEs it. Frontend store stays consistent because
+  // the SSE poll / next refresh will drop it; we also strip it locally for snappy UX.
+  const handleRejectProposed = async (task: Task) => {
+    if (!confirm(`Reject proposed task "${task.title}"?`)) return;
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        // Locally drop by toggling status — the store's tasks list will reconcile on next fetch.
+        updateTaskStatus(task.id, 'done');
+      }
+    } catch (err) {
+      console.error('[MissionQueue] reject proposed failed:', err);
+    }
+  };
+
+  const handleApproveAllProposed = async () => {
+    const proposed = visibleTasks.filter(t => t.status === 'planner_proposed');
+    if (proposed.length === 0) return;
+    if (!confirm(`Approve all ${proposed.length} proposed task${proposed.length === 1 ? '' : 's'}?`)) return;
+    for (const t of proposed) {
+      // Sequential to keep auto-dispatch ordering predictable.
+      // eslint-disable-next-line no-await-in-loop
+      await updateTaskStatusWithPersist(t, 'inbox');
+    }
   };
 
   const updateTaskStatusWithPersist = async (task: Task, targetStatus: TaskStatus) => {
@@ -200,7 +232,18 @@ export function MissionQueue({ workspaceId, convoyId, mobileMode = false, isPort
               >
                 <div className="p-2 border-b border-mc-border flex items-center justify-between gap-2">
                   <span className="text-xs font-medium uppercase text-mc-text-secondary whitespace-nowrap">{column.label}</span>
-                  <span className="text-xs bg-mc-bg-tertiary px-2 py-0.5 rounded text-mc-text-secondary">{columnTasks.length}</span>
+                  <div className="flex items-center gap-1">
+                    {column.id === 'planner_proposed' && hasTasks && (
+                      <button
+                        onClick={handleApproveAllProposed}
+                        className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-mc-accent-purple/20 text-mc-accent-purple hover:bg-mc-accent-purple/30"
+                        title="Approve all proposed tasks"
+                      >
+                        Approve all
+                      </button>
+                    )}
+                    <span className="text-xs bg-mc-bg-tertiary px-2 py-0.5 rounded text-mc-text-secondary">{columnTasks.length}</span>
+                  </div>
                 </div>
 
                 <div className={`flex-1 overflow-y-auto p-2 ${hasTasks ? 'space-y-2' : ''}`}>
@@ -211,6 +254,8 @@ export function MissionQueue({ workspaceId, convoyId, mobileMode = false, isPort
                       onDragStart={handleDragStart}
                       onClick={() => setEditingTask(task)}
                       onMoveStatus={() => setStatusMoveTask(task)}
+                      onApprove={task.status === 'planner_proposed' ? () => handleApproveProposed(task) : undefined}
+                      onReject={task.status === 'planner_proposed' ? () => handleRejectProposed(task) : undefined}
                       isDragging={draggedTask?.id === task.id}
                       mobileMode={false}
                       portraitMode={false}
@@ -257,6 +302,8 @@ export function MissionQueue({ workspaceId, convoyId, mobileMode = false, isPort
                   onDragStart={handleDragStart}
                   onClick={() => setEditingTask(task)}
                   onMoveStatus={() => setStatusMoveTask(task)}
+                  onApprove={task.status === 'planner_proposed' ? () => handleApproveProposed(task) : undefined}
+                  onReject={task.status === 'planner_proposed' ? () => handleRejectProposed(task) : undefined}
                   isDragging={false}
                   mobileMode
                   portraitMode={isPortrait}
@@ -399,13 +446,15 @@ interface TaskCardProps {
   onDragStart: (e: React.DragEvent, task: Task) => void;
   onClick: () => void;
   onMoveStatus: () => void;
+  onApprove?: () => void;
+  onReject?: () => void;
   isDragging: boolean;
   mobileMode: boolean;
   portraitMode?: boolean;
   unreadCount?: number;
 }
 
-function TaskCard({ task, onDragStart, onClick, onMoveStatus, isDragging, mobileMode, portraitMode = true, unreadCount = 0 }: TaskCardProps) {
+function TaskCard({ task, onDragStart, onClick, onMoveStatus, onApprove, onReject, isDragging, mobileMode, portraitMode = true, unreadCount = 0 }: TaskCardProps) {
   const priorityStyles = {
     low: 'text-mc-text-secondary',
     normal: 'text-mc-accent',
@@ -451,6 +500,37 @@ function TaskCard({ task, onDragStart, onClick, onMoveStatus, isDragging, mobile
             </span>
           )}
         </div>
+
+        {task.status === 'planner_proposed' && (
+          <div className={`${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-mc-accent-purple/10 rounded-md border border-mc-accent-purple/30`}>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-mc-accent-purple/20 text-mc-accent-purple font-medium">
+                AI Proposed
+              </span>
+              <span className="text-[10px] text-mc-text-secondary">by Fury</span>
+            </div>
+            {(onApprove || onReject) && (
+              <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                {onApprove && (
+                  <button
+                    onClick={onApprove}
+                    className="flex-1 text-[11px] px-2 py-1 rounded bg-mc-accent-green/15 text-mc-accent-green hover:bg-mc-accent-green/25 font-medium"
+                  >
+                    ✓ Approve
+                  </button>
+                )}
+                {onReject && (
+                  <button
+                    onClick={onReject}
+                    className="flex-1 text-[11px] px-2 py-1 rounded bg-mc-accent-red/15 text-mc-accent-red hover:bg-mc-accent-red/25 font-medium"
+                  >
+                    ✗ Reject
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {isPlanning && (
           <div className={`flex items-center gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-purple-500/10 rounded-md border border-purple-500/20`}>
