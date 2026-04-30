@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Rocket, Activity, ChevronLeft, ChevronRight, Briefcase } from 'lucide-react';
 import { SidebarSessions } from './sidebar/SidebarSessions';
-import { SidebarAgents } from './sidebar/SidebarAgents';
 import { SidebarTokens } from './sidebar/SidebarTokens';
 
 const STORAGE_KEY = 'mc-sidebar-collapsed';
@@ -38,7 +37,7 @@ export function HomeSidebar() {
 
   return (
     <aside
-      className={`shrink-0 h-screen flex flex-col border-r border-mc-border bg-mc-bg-secondary transition-[width] duration-200 ${
+      className={`shrink-0 h-full flex flex-col border-r border-mc-border bg-mc-bg-secondary transition-[width] duration-200 ${
         collapsed ? 'w-14' : 'w-64'
       }`}
     >
@@ -72,7 +71,6 @@ export function HomeSidebar() {
       {!collapsed && (
         <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3 flex flex-col gap-0.5 border-t border-mc-border pt-2">
           <SidebarSessions />
-          <SidebarAgents />
           <SidebarTokens />
         </div>
       )}

@@ -5,7 +5,6 @@ import { AgentRoster } from './dashboard/AgentRoster';
 import { WorkspacesList } from './dashboard/WorkspacesList';
 import { RecentMissions } from './dashboard/RecentMissions';
 import { RecentActivity } from './dashboard/RecentActivity';
-import { TokenUsageCard } from './dashboard/TokenUsageCard';
 
 export function HomeDashboard() {
   return (
@@ -29,10 +28,8 @@ export function HomeDashboard() {
           <div className="lg:col-span-2">
             <RecentMissions />
           </div>
-          <TokenUsageCard />
+          <RecentActivity />
         </div>
-
-        <RecentActivity />
       </div>
     </main>
   );
