@@ -50,7 +50,7 @@ export default function WorkspacesPage() {
   useDataRefresh(['workspaces', 'agents'], load);
 
   return (
-    <div className="min-h-screen bg-mc-bg flex">
+    <div className="h-screen bg-mc-bg flex overflow-hidden">
       <HomeSidebar />
 
       <main className="flex-1 overflow-y-auto p-6">
