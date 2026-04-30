@@ -27,6 +27,23 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={jetbrainsMono.variable}>
+      <head>
+        {/* No-flash theme bootstrap. Reads `mc-theme` from localStorage and
+            applies the class on <html> BEFORE React hydrates, so the page
+            doesn't flash the wrong theme on first paint. Defaults to dark. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                try {
+                  var t = localStorage.getItem('mc-theme');
+                  if (t === 'light') document.documentElement.classList.add('theme-light');
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
       <body className={`${jetbrainsMono.className} bg-mc-bg text-mc-text h-screen overflow-hidden flex flex-col`}>
         <ToastProvider>
           <DemoBanner />

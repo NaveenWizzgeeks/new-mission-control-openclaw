@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { Rocket, Activity, ChevronLeft, ChevronRight, Briefcase, Bot, BarChart3, Clock, MessageSquare } from 'lucide-react';
 import { SidebarSessions } from './sidebar/SidebarSessions';
 import { SidebarTokens } from './sidebar/SidebarTokens';
+import { ThemeToggle } from './ThemeToggle';
 
 const STORAGE_KEY = 'mc-sidebar-collapsed';
 
@@ -79,8 +80,9 @@ export function HomeSidebar() {
         </div>
       )}
 
-      {/* Bottom collapse toggle */}
-      <div className="border-t border-mc-border px-2 py-2 flex-shrink-0 mt-auto">
+      {/* Bottom row: theme toggle + collapse */}
+      <div className="border-t border-mc-border px-2 py-2 flex-shrink-0 mt-auto space-y-0.5">
+        <ThemeToggle collapsed={collapsed} />
         <button
           onClick={toggle}
           className={`w-full flex items-center gap-2 rounded text-mc-text-secondary hover:bg-mc-bg-tertiary hover:text-mc-text transition-colors text-xs ${
