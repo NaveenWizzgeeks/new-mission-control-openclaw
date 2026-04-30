@@ -5,7 +5,7 @@ import { HomeDashboard } from '@/components/HomeDashboard';
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-mc-bg flex">
+    <div className="h-screen flex bg-mc-bg overflow-hidden">
       <HomeSidebar />
       <HomeDashboard />
     </div>
