@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
           pending_dispatch: 0,
           planning: 0,
           inbox: 0,
+          planner_proposed: 0,
           assigned: 0,
           in_progress: 0,
           convoy_active: 0,

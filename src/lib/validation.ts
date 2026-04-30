@@ -12,6 +12,7 @@ const TaskStatus = z.enum([
   'pending_dispatch',
   'planning',
   'inbox',
+  'planner_proposed',
   'assigned',
   'in_progress',
   'convoy_active',
@@ -19,6 +20,16 @@ const TaskStatus = z.enum([
   'review',
   'verification',
   'done'
+]);
+
+// Nexus mission status (alias for the existing convoys.mission_stage column)
+export const MissionStatus = z.enum([
+  'backlog',
+  'planning',
+  'in_progress',
+  'testing',
+  'done',
+  'paused'
 ]);
 
 const TaskPriority = z.enum(['low', 'normal', 'high', 'urgent']);

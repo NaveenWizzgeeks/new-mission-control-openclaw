@@ -2,7 +2,7 @@
 
 export type AgentStatus = 'standby' | 'working' | 'offline';
 
-export type TaskStatus = 'pending_dispatch' | 'planning' | 'inbox' | 'assigned' | 'in_progress' | 'convoy_active' | 'testing' | 'review' | 'verification' | 'done';
+export type TaskStatus = 'pending_dispatch' | 'planning' | 'inbox' | 'planner_proposed' | 'assigned' | 'in_progress' | 'convoy_active' | 'testing' | 'review' | 'verification' | 'done';
 
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 
@@ -22,14 +22,18 @@ export type EventType =
 
 export type AgentSource = 'local' | 'gateway';
 
+export type AgentRole = 'planner' | 'builder' | 'tester' | 'reviewer' | 'general' | 'custom' | (string & {});
+
 export interface Agent {
   id: string;
   name: string;
-  role: string;
+  role: AgentRole;
   description?: string;
   avatar_emoji: string;
   status: AgentStatus;
   is_master: boolean;
+  is_lead?: boolean;
+  is_global?: boolean;
   workspace_id: string;
   soul_md?: string;
   user_md?: string;
@@ -168,6 +172,7 @@ export interface WorkspaceStats {
     pending_dispatch: number;
     planning: number;
     inbox: number;
+    planner_proposed: number;
     assigned: number;
     in_progress: number;
     convoy_active: number;
@@ -382,9 +387,9 @@ export interface AgentWithOpenClaw extends Agent {
   openclawSession?: OpenClawSession | null;
 }
 
-// Convoy types
+// Convoy types (the convoys table is the storage for "missions" — UI-only rename per Nexus plan)
 export type ConvoyStatus = 'active' | 'paused' | 'completing' | 'done' | 'failed';
-export type MissionStage = 'backlog' | 'planning' | 'in_progress' | 'testing' | 'done';
+export type MissionStage = 'backlog' | 'planning' | 'in_progress' | 'testing' | 'done' | 'paused';
 export type DecompositionStrategy = 'manual' | 'ai' | 'planning';
 export type AgentHealthState = 'idle' | 'working' | 'stalled' | 'stuck' | 'zombie' | 'offline';
 export type CheckpointType = 'auto' | 'manual' | 'crash_recovery';
@@ -755,11 +760,36 @@ export interface Convoy {
   total_subtasks: number;
   completed_subtasks: number;
   failed_subtasks: number;
+  // Nexus Phase 1 mission columns
+  enable_pipeline?: boolean;
+  enable_existing_codebase?: boolean;
+  codebase_path?: string;
+  git_branch?: string;
+  tech_stack_hint?: string;
+  success_criteria?: string;
+  codebase_summary?: string;
+  planning_started?: boolean;
+  proposed_tasks_count?: number;
+  active_agents_count?: number;
   created_at: string;
   updated_at: string;
   // Joined
   parent_task?: Task;
   subtasks?: ConvoySubtask[];
+}
+
+// Mission is the user-facing alias for Convoy. Same row, different name.
+export type Mission = Convoy;
+export type MissionStatus = MissionStage;
+
+export interface CodebaseCache {
+  id: string;
+  mission_id: string;
+  summary?: string;
+  file_tree?: string;
+  tech_stack?: string;
+  last_scanned: string;
+  diff_hash?: string;
 }
 
 export interface ConvoySubtask {

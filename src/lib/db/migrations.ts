@@ -1763,6 +1763,171 @@ const migrations: Migration[] = [
         console.log('[Migration 031] mission_stage already exists — skipping');
       }
     }
+  },
+  {
+    id: '032',
+    name: 'nexus_phase_1_mission_columns',
+    up: (db) => {
+      // Phase 1 of Autensa Nexus build (docs/plans/AUTENSA_NEXUS_BUILD_PROMPT.md).
+      // We treat the existing `convoys` table as the storage for "missions" — UI-only
+      // rename, no DDL rename. This migration adds the mission-specific columns,
+      // expands tasks.status to include 'planner_proposed', adds agent flags,
+      // creates codebase_cache, and seeds Fury if no planner agent exists yet.
+      console.log('[Migration 032] Nexus Phase 1: mission columns, planner_proposed, agent flags, codebase_cache, Fury seed');
+
+      // 1. Add mission columns to convoys (idempotent per-column).
+      const convoyCols = (db.prepare("PRAGMA table_info(convoys)").all() as { name: string }[]).map(c => c.name);
+      const addConvoyCol = (col: string, ddl: string) => {
+        if (!convoyCols.includes(col)) {
+          db.exec(`ALTER TABLE convoys ADD COLUMN ${col} ${ddl}`);
+          console.log(`[Migration 032] convoys.${col} added`);
+        }
+      };
+      addConvoyCol('enable_pipeline', `INTEGER DEFAULT 1`);
+      addConvoyCol('enable_existing_codebase', `INTEGER DEFAULT 0`);
+      addConvoyCol('codebase_path', `TEXT`);
+      addConvoyCol('git_branch', `TEXT`);
+      addConvoyCol('tech_stack_hint', `TEXT`);
+      addConvoyCol('success_criteria', `TEXT`);
+      addConvoyCol('codebase_summary', `TEXT`);
+      addConvoyCol('planning_started', `INTEGER DEFAULT 0`);
+      addConvoyCol('proposed_tasks_count', `INTEGER DEFAULT 0`);
+      addConvoyCol('active_agents_count', `INTEGER DEFAULT 0`);
+
+      // mission_stage was added in 031 without a CHECK constraint, so the new
+      // 'paused' value is allowed at the SQL level — Zod / TS enums are the gate.
+
+      // 2. Expand tasks.status CHECK to include 'planner_proposed'.
+      // SQLite cannot ALTER a CHECK in place, so recreate the table the same way
+      // earlier migrations have (e.g. 010 / 015). legacy_alter_table=ON in the
+      // runner keeps FK references in child tables pointing at the new `tasks`.
+      const taskSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as { sql: string } | undefined;
+      if (taskSchema && !taskSchema.sql.includes("'planner_proposed'")) {
+        console.log('[Migration 032] Recreating tasks table to add planner_proposed status');
+        const oldCols = (db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]).map(c => c.name);
+
+        db.exec(`ALTER TABLE tasks RENAME TO _tasks_old_032`);
+        db.exec(`
+          CREATE TABLE tasks (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            description TEXT,
+            status TEXT DEFAULT 'inbox' CHECK (status IN (
+              'pending_dispatch', 'planning', 'inbox', 'planner_proposed',
+              'assigned', 'in_progress', 'convoy_active', 'testing',
+              'review', 'verification', 'done'
+            )),
+            priority TEXT DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
+            assigned_agent_id TEXT REFERENCES agents(id),
+            created_by_agent_id TEXT REFERENCES agents(id),
+            workspace_id TEXT DEFAULT 'default' REFERENCES workspaces(id),
+            business_id TEXT DEFAULT 'default',
+            due_date TEXT,
+            workflow_template_id TEXT REFERENCES workflow_templates(id),
+            planning_session_key TEXT,
+            planning_messages TEXT,
+            planning_complete INTEGER DEFAULT 0,
+            planning_spec TEXT,
+            planning_agents TEXT,
+            planning_dispatch_error TEXT,
+            status_reason TEXT,
+            images TEXT,
+            convoy_id TEXT,
+            is_subtask INTEGER DEFAULT 0,
+            product_id TEXT REFERENCES products(id),
+            idea_id TEXT REFERENCES ideas(id),
+            estimated_cost_usd REAL,
+            actual_cost_usd REAL DEFAULT 0,
+            repo_url TEXT,
+            repo_branch TEXT,
+            pr_url TEXT,
+            pr_status TEXT CHECK (pr_status IN ('pending', 'open', 'merged', 'closed')),
+            workspace_path TEXT,
+            workspace_strategy TEXT,
+            workspace_port INTEGER,
+            workspace_base_commit TEXT,
+            merge_status TEXT,
+            merge_pr_url TEXT,
+            retry_count INTEGER DEFAULT 0,
+            next_retry_at TEXT,
+            dispatch_lock TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+          )
+        `);
+
+        const newCols = new Set((db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]).map(c => c.name));
+        const safeCols = oldCols.filter(c => newCols.has(c)).join(', ');
+        db.exec(`INSERT INTO tasks (${safeCols}) SELECT ${safeCols} FROM _tasks_old_032`);
+        db.exec(`DROP TABLE _tasks_old_032`);
+
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_agent_id)`);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id)`);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_convoy ON tasks(convoy_id)`);
+      } else {
+        console.log('[Migration 032] tasks.status already supports planner_proposed — skipping recreate');
+      }
+
+      // 3. Agent flags. is_master already exists (per-workspace master).
+      // is_lead is the global lead concept; is_global is the per-workspace-vs-global flag.
+      const agentCols = (db.prepare("PRAGMA table_info(agents)").all() as { name: string }[]).map(c => c.name);
+      if (!agentCols.includes('is_lead')) {
+        db.exec(`ALTER TABLE agents ADD COLUMN is_lead INTEGER DEFAULT 0`);
+        console.log('[Migration 032] agents.is_lead added');
+      }
+      if (!agentCols.includes('is_global')) {
+        db.exec(`ALTER TABLE agents ADD COLUMN is_global INTEGER DEFAULT 1`);
+        // Backfill: every existing agent is global by default.
+        db.exec(`UPDATE agents SET is_global = 1 WHERE is_global IS NULL`);
+        console.log('[Migration 032] agents.is_global added and backfilled');
+      }
+
+      // 4. codebase_cache table for the Fury planning pipeline (Phase 5).
+      // Created here so later phases don't need their own schema migration.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS codebase_cache (
+          id TEXT PRIMARY KEY,
+          mission_id TEXT NOT NULL REFERENCES convoys(id) ON DELETE CASCADE,
+          summary TEXT,
+          file_tree TEXT,
+          tech_stack TEXT,
+          last_scanned TEXT DEFAULT (datetime('now')),
+          diff_hash TEXT
+        )
+      `);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_codebase_cache_mission ON codebase_cache(mission_id)`);
+
+      // 5. Auto-provision Fury (planner) if no planner agent exists.
+      // Idempotent: skips if any agent already has role='planner'.
+      const planner = db.prepare(`SELECT id FROM agents WHERE role = 'planner' LIMIT 1`).get();
+      if (!planner) {
+        // Use SQL-side ID generation to avoid depending on globalThis.crypto.
+        db.exec(`
+          INSERT INTO agents (
+            id, name, role, description, avatar_emoji, status,
+            is_master, is_lead, is_global, workspace_id, source,
+            created_at, updated_at
+          )
+          VALUES (
+            lower(hex(randomblob(16))),
+            'Fury',
+            'planner',
+            'Auto-provisioned planner agent. Decomposes missions into subtasks and proposes follow-ups.',
+            '🧠',
+            'standby',
+            0, 1, 1,
+            'default',
+            'local',
+            datetime('now'),
+            datetime('now')
+          )
+        `);
+        console.log('[Migration 032] Seeded Fury (planner, lead) — no existing planner agent found');
+      } else {
+        console.log('[Migration 032] Planner agent already exists — Fury seed skipped');
+      }
+    }
   }
 ];
 

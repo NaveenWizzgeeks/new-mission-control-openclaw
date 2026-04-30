@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS agents (
   avatar_emoji TEXT DEFAULT '🤖',
   status TEXT DEFAULT 'standby' CHECK (status IN ('standby', 'working', 'offline')),
   is_master INTEGER DEFAULT 0,
+  is_lead INTEGER DEFAULT 0,
+  is_global INTEGER DEFAULT 1,
   workspace_id TEXT DEFAULT 'default' REFERENCES workspaces(id),
   soul_md TEXT,
   user_md TEXT,
@@ -50,7 +52,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   description TEXT,
-  status TEXT DEFAULT 'inbox' CHECK (status IN ('pending_dispatch', 'planning', 'inbox', 'assigned', 'in_progress', 'convoy_active', 'testing', 'review', 'verification', 'done')),
+  status TEXT DEFAULT 'inbox' CHECK (status IN ('pending_dispatch', 'planning', 'inbox', 'planner_proposed', 'assigned', 'in_progress', 'convoy_active', 'testing', 'review', 'verification', 'done')),
   priority TEXT DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
   assigned_agent_id TEXT REFERENCES agents(id),
   created_by_agent_id TEXT REFERENCES agents(id),
@@ -264,13 +266,35 @@ CREATE TABLE IF NOT EXISTS convoys (
   parent_task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   status TEXT DEFAULT 'active' CHECK (status IN ('active', 'paused', 'completing', 'done', 'failed')),
+  mission_stage TEXT DEFAULT 'backlog',
   decomposition_strategy TEXT DEFAULT 'manual' CHECK (decomposition_strategy IN ('manual', 'ai', 'planning')),
   decomposition_spec TEXT,
   total_subtasks INTEGER DEFAULT 0,
   completed_subtasks INTEGER DEFAULT 0,
   failed_subtasks INTEGER DEFAULT 0,
+  enable_pipeline INTEGER DEFAULT 1,
+  enable_existing_codebase INTEGER DEFAULT 0,
+  codebase_path TEXT,
+  git_branch TEXT,
+  tech_stack_hint TEXT,
+  success_criteria TEXT,
+  codebase_summary TEXT,
+  planning_started INTEGER DEFAULT 0,
+  proposed_tasks_count INTEGER DEFAULT 0,
+  active_agents_count INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Codebase analysis cache (Nexus Phase 5 — Fury planning pipeline)
+CREATE TABLE IF NOT EXISTS codebase_cache (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL REFERENCES convoys(id) ON DELETE CASCADE,
+  summary TEXT,
+  file_tree TEXT,
+  tech_stack TEXT,
+  last_scanned TEXT DEFAULT (datetime('now')),
+  diff_hash TEXT
 );
 
 -- Convoy subtasks: individual work items within a convoy
@@ -756,6 +780,7 @@ CREATE INDEX IF NOT EXISTS idx_convoys_parent ON convoys(parent_task_id);
 CREATE INDEX IF NOT EXISTS idx_convoys_status ON convoys(status);
 CREATE INDEX IF NOT EXISTS idx_convoy_subtasks_convoy ON convoy_subtasks(convoy_id);
 CREATE INDEX IF NOT EXISTS idx_convoy_subtasks_task ON convoy_subtasks(task_id);
+CREATE INDEX IF NOT EXISTS idx_codebase_cache_mission ON codebase_cache(mission_id);
 CREATE INDEX IF NOT EXISTS idx_agent_health_agent ON agent_health(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_health_state ON agent_health(health_state);
 CREATE INDEX IF NOT EXISTS idx_work_checkpoints_task ON work_checkpoints(task_id, created_at DESC);
