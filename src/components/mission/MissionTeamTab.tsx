@@ -64,7 +64,7 @@ export function MissionTeamTab({ missionId, parentTaskId, workspaceId }: Mission
         </div>
 
         {/* Re-use the existing TeamTab as-is — it operates on the parent task. */}
-        <div className="-mx-5 -mb-5 border-t border-mc-border bg-mc-bg/40 rounded-b-xl">
+        <div className="-mx-5 -mb-5 mt-5 border-t border-mc-border bg-mc-bg/40 rounded-b-xl px-5 py-5">
           <TeamTab key={reloadKey} taskId={parentTaskId} workspaceId={workspaceId} />
         </div>
       </div>
