@@ -28,7 +28,15 @@ export function ActiveMissionCard() {
       const res = await fetch('/api/missions');
       if (!res.ok) { setActive(null); return; }
       const list: MissionRow[] = await res.json();
-      const m = list.find(x => x.mission_stage === 'in_progress');
+      // Strict filter: only mission_stage === 'in_progress'. Multiple should
+      // be impossible per the Phase 2 single-active enforcement; log if we see
+      // more than one and pick the most-recently updated.
+      const inProgress = list.filter(x => x.mission_stage === 'in_progress');
+      if (inProgress.length > 1) {
+        console.warn(`[ActiveMissionCard] Found ${inProgress.length} missions in_progress — single-active rule violated`);
+        inProgress.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+      }
+      const m = inProgress[0];
       setActive(m ?? null);
       if (m) {
         const wsRes = await fetch('/api/workspaces');

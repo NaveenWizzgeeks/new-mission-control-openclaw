@@ -60,7 +60,7 @@ export function RecentMissions() {
   useDataRefresh(['workspaces', 'tasks'], load);
 
   return (
-    <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5 flex flex-col max-h-[28rem]">
+    <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5 flex flex-col h-[26rem]">
       <div className="flex items-center justify-between mb-4 shrink-0">
         <div className="flex items-center gap-2">
           <Target className="w-4 h-4 text-mc-accent" />
@@ -78,7 +78,7 @@ export function RecentMissions() {
       ) : missions.length === 0 ? (
         <p className="text-mc-text-secondary text-sm">No missions yet</p>
       ) : (
-        <ul className="space-y-1.5 overflow-y-auto -mr-2 pr-2">
+        <ul className="space-y-1.5 overflow-y-auto -mr-2 pr-2 flex-1 min-h-0">
           {missions.slice(0, 5).map(m => {
             const ws = workspacesById.get(m.parent_task.workspace_id);
             const total = m.total_subtasks;

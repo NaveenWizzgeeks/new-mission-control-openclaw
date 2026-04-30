@@ -40,7 +40,7 @@ export function RecentActivity() {
   }, [load]);
 
   return (
-    <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5 flex flex-col max-h-[24rem]">
+    <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5 flex flex-col h-[26rem]">
       <div className="flex items-center justify-between mb-4 shrink-0">
         <div className="flex items-center gap-2">
           <Activity className="w-4 h-4 text-mc-accent-cyan" />
@@ -58,7 +58,7 @@ export function RecentActivity() {
       ) : events.length === 0 ? (
         <p className="text-mc-text-secondary text-sm">No recent activity</p>
       ) : (
-        <ul className="space-y-1 overflow-y-auto -mr-2 pr-2">
+        <ul className="space-y-1 overflow-y-auto -mr-2 pr-2 flex-1 min-h-0">
           {events.map(ev => (
             <li
               key={ev.id}

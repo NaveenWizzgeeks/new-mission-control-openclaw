@@ -22,7 +22,7 @@ export function WorkspacesList() {
   useDataRefresh(['workspaces'], load);
 
   return (
-    <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5 flex flex-col max-h-[28rem]">
+    <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5 flex flex-col h-[26rem]">
       <div className="flex items-center justify-between mb-4 shrink-0">
         <p className="text-sm font-medium uppercase tracking-wider text-mc-text-secondary">Workspaces</p>
         {workspaces && workspaces.length > 0 && (
@@ -37,7 +37,7 @@ export function WorkspacesList() {
       ) : workspaces.length === 0 ? (
         <p className="text-mc-text-secondary text-sm">No workspaces yet</p>
       ) : (
-        <ul className="space-y-1 overflow-y-auto -mr-2 pr-2">
+        <ul className="space-y-1 overflow-y-auto -mr-2 pr-2 flex-1 min-h-0">
           {workspaces.map(ws => {
             const active = ACTIVE_KEYS.reduce((sum, k) => sum + (ws.taskCounts[k] ?? 0), 0);
             const done = ws.taskCounts.done ?? 0;

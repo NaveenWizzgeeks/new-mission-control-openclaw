@@ -27,16 +27,16 @@ export function HomeDashboard() {
         {/* Quick links band */}
         <QuickLinks />
 
-        {/* Recent activity + agent roster pair */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+        {/* Recent activity + agent roster pair — equal height, internal scroll */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2">
             <RecentActivity />
           </div>
           <AgentRoster />
         </div>
 
-        {/* Workspaces + recent missions pair */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        {/* Workspaces + recent missions pair — equal height, internal scroll */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <WorkspacesList />
           <RecentMissions />
         </div>

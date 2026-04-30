@@ -26,7 +26,7 @@ export function AgentRoster() {
   useDataRefresh(['agents', 'workspaces'], load);
 
   return (
-    <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5 flex flex-col max-h-[28rem]">
+    <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5 flex flex-col h-[26rem]">
       <div className="flex items-center justify-between mb-4 shrink-0">
         <p className="text-sm font-medium uppercase tracking-wider text-mc-text-secondary">Agent Roster</p>
         {!loading && agents.length > 0 && (
@@ -40,7 +40,7 @@ export function AgentRoster() {
       ) : agents.length === 0 ? (
         <p className="text-mc-text-secondary text-sm">No agents configured</p>
       ) : (
-        <div className="space-y-2 overflow-y-auto -mr-2 pr-2">
+        <div className="space-y-2 overflow-y-auto -mr-2 pr-2 flex-1 min-h-0">
           {agents.map(agent => (
             <div key={agent.id} className="flex items-center gap-3">
               <span className="text-xl leading-none">{agent.avatar_emoji}</span>
