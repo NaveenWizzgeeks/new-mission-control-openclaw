@@ -18,14 +18,14 @@ export function HomeDashboard() {
 
         <HeroStats />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
           <div className="lg:col-span-2">
             <WorkspacesList />
           </div>
           <AgentRoster />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
           <div className="lg:col-span-2">
             <RecentMissions />
           </div>
