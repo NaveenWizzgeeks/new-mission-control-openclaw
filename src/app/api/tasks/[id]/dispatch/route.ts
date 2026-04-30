@@ -298,6 +298,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       console.error('[Dispatch] agent skill injection failed:', err);
     }
 
+    // Nexus Phase 7c: lead-agent prompt orchestration. Inject Lead awareness
+    // into every dispatch — the Lead gets "you coordinate the team", every
+    // other agent gets "the team lead is X". No-op when no lead designated.
+    try {
+      const lead = queryOne<{ id: string; name: string; role: string }>(
+        `SELECT id, name, role FROM agents WHERE is_lead = 1 LIMIT 1`
+      );
+      if (lead) {
+        const isThisAgent = lead.id === agent.id;
+        const leadBlock = isThisAgent
+          ? `\n\n---\n\n## Your Role — Lead Agent\nYou are the Lead Agent for this team. You coordinate the squad, can assign tasks to any other agent via the agent_mailbox, and have full visibility into all ongoing work. When you spot blocking work or hand-offs that aren't happening, intervene.\n`
+          : `\n\n---\n\n## Team Lead\nThe lead agent for this team is **${lead.name}** (${lead.role}). You may receive direction from them; their oversight applies across all team activities.\n`;
+        skillsSection = `${skillsSection}${leadBlock}`;
+      }
+    } catch (err) {
+      console.error('[Dispatch] lead orchestration injection failed:', err);
+    }
+
     // Determine role-specific instructions based on workflow template
     const workflow = getTaskWorkflow(id);
     let currentStage: WorkflowStage | undefined;

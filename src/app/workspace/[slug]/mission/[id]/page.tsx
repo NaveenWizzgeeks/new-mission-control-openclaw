@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, FlaskConical, Users } from 'lucide-react';
+import { ChevronLeft, Users } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { MissionQueue } from '@/components/MissionQueue';
 import { LiveFeed } from '@/components/LiveFeed';
@@ -12,6 +12,7 @@ import { SSEDebugPanel } from '@/components/SSEDebugPanel';
 import { MissionPipelineStepper } from '@/components/mission/MissionPipelineStepper';
 import { MissionOverviewTab, type MissionDetail } from '@/components/mission/MissionOverviewTab';
 import { MissionTeamTab } from '@/components/mission/MissionTeamTab';
+import { MissionTestsTab } from '@/components/mission/MissionTestsTab';
 import { useMissionControl } from '@/lib/store';
 import { useSSE } from '@/hooks/useSSE';
 import type { Workspace, MissionStage } from '@/lib/types';
@@ -271,11 +272,7 @@ export default function MissionDrilldownPage() {
 
         {tab === 'tests' && (
           <div className="flex-1 overflow-y-auto p-6">
-            <div className="max-w-2xl mx-auto bg-mc-bg-secondary border border-mc-border rounded-xl p-6 text-center text-mc-text-secondary">
-              <FlaskConical className="w-10 h-10 mx-auto mb-3 text-mc-accent-yellow" />
-              <h3 className="text-base font-semibold text-mc-text mb-1">Test Results</h3>
-              <p className="text-sm">Playwright integration arrives in Phase 7. This tab will surface pass/fail counts, per-test details, and a re-run button.</p>
-            </div>
+            <MissionTestsTab missionId={missionId} defaultCwd={mission.codebase_path} />
           </div>
         )}
       </div>
