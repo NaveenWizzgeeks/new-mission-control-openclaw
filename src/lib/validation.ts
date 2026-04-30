@@ -44,6 +44,37 @@ const ActivityType = z.enum([
 
 const DeliverableType = z.enum(['file', 'url', 'artifact']);
 
+// Mission (Nexus) validation schemas — operates on the convoys table per the
+// "no rename, UI alias only" decision.
+export const CreateMissionSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(500),
+  description: z.string().max(20_000).optional(),
+  workspace_id: z.string().min(1).default('default'),
+  priority: TaskPriority.optional(),
+  enable_pipeline: z.boolean().default(true),
+  enable_existing_codebase: z.boolean().default(false),
+  codebase_path: z.string().max(2000).optional().nullable(),
+  git_branch: z.string().max(255).optional().nullable(),
+  tech_stack_hint: z.string().max(1000).optional().nullable(),
+  success_criteria: z.string().max(5000).optional().nullable(),
+});
+
+export const UpdateMissionSchema = z.object({
+  name: z.string().min(1).max(500).optional(),
+  description: z.string().max(20_000).optional(),
+  enable_pipeline: z.boolean().optional(),
+  enable_existing_codebase: z.boolean().optional(),
+  codebase_path: z.string().max(2000).nullable().optional(),
+  git_branch: z.string().max(255).nullable().optional(),
+  tech_stack_hint: z.string().max(1000).nullable().optional(),
+  success_criteria: z.string().max(5000).nullable().optional(),
+  codebase_summary: z.string().max(50_000).nullable().optional(),
+  planning_started: z.boolean().optional(),
+});
+
+export type CreateMissionInput = z.infer<typeof CreateMissionSchema>;
+export type UpdateMissionInput = z.infer<typeof UpdateMissionSchema>;
+
 // Task validation schemas
 export const CreateTaskSchema = z.object({
   title: z.string().min(1, 'Title is required').max(500, 'Title must be 500 characters or less'),
