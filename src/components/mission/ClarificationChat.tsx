@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sparkles, Loader2, CheckCircle2, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -26,16 +26,14 @@ interface ClarificationChatProps {
   onMissionAdvanced?: () => void;
 }
 
-// Splits an answer into "selected option label" + optional "Other" text by
-// matching against the question's option list. The DB stores answers as a
-// single string; for option matches we just store the label, and for "Other"
-// we store the user's free-text answer (it won't match any option label).
+const POLL_INTERVAL_MS = 2_000;
+const POLL_TIMEOUT_MS = 90_000;
+
 function deriveSelection(answer: string | null, options: PlanningOption[] | null): { selectedId: string | null; otherText: string } {
   if (!answer || !options) return { selectedId: null, otherText: '' };
   const trimmed = answer.trim();
   const match = options.find(o => o.id !== 'other' && o.label.toLowerCase() === trimmed.toLowerCase());
   if (match) return { selectedId: match.id, otherText: '' };
-  // Default to Other when the saved answer doesn't match any preset option
   return { selectedId: 'other', otherText: trimmed };
 }
 
@@ -46,28 +44,115 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [otherText, setOtherText] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  const [waitingForFury, setWaitingForFury] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isComplete, setIsComplete] = useState(false);
+  const pollAbortRef = useRef<AbortController | null>(null);
 
-  const load = useCallback(async () => {
+  // Poll Fury once. Returns whether we should keep polling (true if no new
+  // question arrived yet AND mission isn't complete).
+  const pollOnce = useCallback(async (currentQuestionCount: number, signal: AbortSignal): Promise<{
+    keepPolling: boolean;
+    reachedTotal: number;
+    completed: boolean;
+  }> => {
+    const res = await fetch(`/api/missions/${missionId}/planning/poll`, {
+      method: 'POST',
+      signal,
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Poll failed (${res.status})`);
+    }
+    const data = await res.json() as {
+      is_complete: boolean;
+      questions?: PlanningQuestion[];
+      total?: number;
+    };
+
+    if (data.is_complete) {
+      return { keepPolling: false, reachedTotal: currentQuestionCount, completed: true };
+    }
+
+    if (Array.isArray(data.questions)) {
+      setQuestions(data.questions);
+      const next = data.questions.length;
+      // If new questions arrived, jump to the first unanswered one
+      if (next > currentQuestionCount) {
+        const firstUnanswered = data.questions.findIndex(q => (q.answer ?? '').trim().length === 0);
+        if (firstUnanswered >= 0) setActiveIdx(firstUnanswered);
+      }
+      return { keepPolling: next === currentQuestionCount, reachedTotal: next, completed: false };
+    }
+
+    return { keepPolling: true, reachedTotal: currentQuestionCount, completed: false };
+  }, [missionId]);
+
+  // Drive a poll loop until either new content arrives or the timeout fires.
+  const pollUntilProgress = useCallback(async (priorCount: number) => {
+    pollAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    pollAbortRef.current = ctrl;
+    setWaitingForFury(true);
+    setError(null);
+
+    const start = Date.now();
+    try {
+      while (Date.now() - start < POLL_TIMEOUT_MS) {
+        if (ctrl.signal.aborted) return;
+        try {
+          const { keepPolling, completed } = await pollOnce(priorCount, ctrl.signal);
+          if (completed) {
+            setIsComplete(true);
+            onMissionAdvanced?.();
+            router.push(`/workspace/${workspaceSlug}/mission/${missionId}#tasks`);
+            return;
+          }
+          if (!keepPolling) return; // new question arrived
+        } catch (err) {
+          if ((err as Error).name === 'AbortError') return;
+          throw err;
+        }
+        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+      }
+      setError('Fury is taking longer than expected. Try again, or regenerate the question set.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Poll failed');
+    } finally {
+      if (!ctrl.signal.aborted) setWaitingForFury(false);
+    }
+  }, [pollOnce, onMissionAdvanced, router, workspaceSlug, missionId]);
+
+  // Initial load: fetch any persisted questions immediately, then start polling
+  // for the first one (since start-planning only kicks Fury off; the question
+  // arrives async).
+  const loadInitial = useCallback(async () => {
     try {
       const res = await fetch(`/api/missions/${missionId}/questions`);
       if (res.ok) {
         const { questions: qs } = await res.json() as { questions: PlanningQuestion[] };
         setQuestions(qs);
-        // Park on the first unanswered question
         const firstUnanswered = qs.findIndex(q => (q.answer ?? '').trim().length === 0);
         setActiveIdx(firstUnanswered >= 0 ? firstUnanswered : 0);
+        if (qs.length === 0) {
+          // No questions yet — Fury hasn't replied. Start polling.
+          await pollUntilProgress(0);
+        }
       }
     } catch {
       // surfaced via empty state
     }
+  }, [missionId, pollUntilProgress]);
+
+  useEffect(() => {
+    loadInitial();
+    return () => {
+      pollAbortRef.current?.abort();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missionId]);
 
-  useEffect(() => { load(); }, [load]);
-
-  // Sync local selection state when active question changes
   const active = questions?.[activeIdx];
   useEffect(() => {
     if (!active) return;
@@ -79,7 +164,6 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
 
   const total = questions?.length ?? 0;
   const answeredCount = questions?.filter(q => (q.answer ?? '').trim().length > 0).length ?? 0;
-  const allAnswered = total > 0 && answeredCount === total;
 
   const submitAnswer = async () => {
     if (!active || !selectedId) return;
@@ -109,50 +193,32 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
         setError(data.error || `Save failed (${res.status})`);
         return;
       }
-      await load();
-      // Auto-advance to next unanswered if any, else stay
-      if (questions) {
-        const nextUnanswered = questions.findIndex((q, i) => i > activeIdx && (q.answer ?? '').trim().length === 0);
-        if (nextUnanswered >= 0) setActiveIdx(nextUnanswered);
-        else if (activeIdx < total - 1) setActiveIdx(activeIdx + 1);
-      }
+      // Optimistically update local state
+      setQuestions(prev => prev ? prev.map(q => q.id === active.id ? { ...q, answer: answerValue, answered_at: new Date().toISOString() } : q) : prev);
+      // Poll for Fury's next move (next question or final spec)
+      await pollUntilProgress(total);
     } finally {
       setSubmitting(false);
     }
   };
 
   const regenerate = async () => {
-    if (!confirm('Regenerate the question set? Existing answers will be cleared.')) return;
+    if (!confirm('Regenerate the question set? Existing answers will be cleared and a fresh planning session will begin.')) return;
     setRegenerating(true);
     setError(null);
+    pollAbortRef.current?.abort();
     try {
       const res = await fetch(`/api/missions/${missionId}/start-planning?regenerate=true`, { method: 'POST' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(data.error || `Regenerate failed (${res.status})`);
-      } else {
-        setActiveIdx(0);
-        await load();
-      }
-    } finally {
-      setRegenerating(false);
-    }
-  };
-
-  const generateTasks = async () => {
-    setGenerating(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/missions/${missionId}/generate-tasks`, { method: 'POST' });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error || `Generate failed (${res.status})`);
         return;
       }
-      onMissionAdvanced?.();
-      router.push(`/workspace/${workspaceSlug}/mission/${missionId}#tasks`);
+      setQuestions([]);
+      setActiveIdx(0);
+      await pollUntilProgress(0);
     } finally {
-      setGenerating(false);
+      setRegenerating(false);
     }
   };
 
@@ -164,6 +230,11 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
         <h3 className="text-sm font-semibold uppercase tracking-wider text-mc-text-secondary flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-mc-accent" />
           Fury Clarification
+          {waitingForFury && (
+            <span className="ml-2 inline-flex items-center gap-1 text-[10px] normal-case tracking-normal text-mc-accent-blue">
+              <Loader2 className="w-3 h-3 animate-spin" /> Fury is thinking…
+            </span>
+          )}
         </h3>
         <div className="flex items-center gap-2">
           <span className="text-xs text-mc-text-secondary tabular-nums">
@@ -171,9 +242,9 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
           </span>
           <button
             onClick={regenerate}
-            disabled={regenerating || total === 0}
+            disabled={regenerating || waitingForFury}
             className="text-xs px-2 py-1 rounded bg-mc-bg-tertiary text-mc-text-secondary hover:text-mc-text border border-mc-border flex items-center gap-1 disabled:opacity-50"
-            title="Ask Fury for a fresh question set"
+            title="Restart the planning session with Fury"
           >
             {regenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
             Regenerate
@@ -183,10 +254,19 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
 
       {questions === null ? (
         <p className="text-sm text-mc-text-secondary">Loading…</p>
+      ) : isComplete ? (
+        <div className="text-sm text-mc-accent-green flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4" />
+          Fury finished planning. Loading the task board…
+        </div>
       ) : total === 0 ? (
-        <p className="text-sm text-mc-text-secondary">
-          No questions yet. Click <strong>Regenerate</strong> to ask Fury for a clarification set.
-        </p>
+        <div className="text-sm text-mc-text-secondary py-4 text-center">
+          {waitingForFury ? (
+            <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Waiting for Fury's first question…</span>
+          ) : (
+            <>No questions yet. Click <strong>Regenerate</strong> to ask Fury again.</>
+          )}
+        </div>
       ) : !active ? null : (
         <div>
           {/* Step dots */}
@@ -233,7 +313,7 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
                   <div key={option.id}>
                     <button
                       onClick={() => setSelectedId(option.id)}
-                      disabled={submitting}
+                      disabled={submitting || waitingForFury}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all text-left ${
                         isSelected
                           ? 'border-mc-accent bg-mc-accent/10'
@@ -256,7 +336,7 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
                         autoFocus
                         placeholder="Type your answer…"
                         className="mt-2 ml-10 w-[calc(100%-2.5rem)] bg-mc-bg border border-mc-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-mc-accent"
-                        disabled={submitting}
+                        disabled={submitting || waitingForFury}
                       />
                     )}
                   </div>
@@ -264,7 +344,6 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
               })}
             </div>
           ) : (
-            // Fallback: text-only question (legacy or non-MC)
             <textarea
               value={otherText}
               onChange={(e) => { setOtherText(e.target.value); setSelectedId('other'); }}
@@ -280,12 +359,11 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
             </div>
           )}
 
-          {/* Footer: prev/next/save + final Generate Tasks */}
           <div className="mt-4 pt-4 border-t border-mc-border flex items-center justify-between">
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setActiveIdx(Math.max(0, activeIdx - 1))}
-                disabled={activeIdx === 0 || submitting}
+                disabled={activeIdx === 0 || submitting || waitingForFury}
                 className="p-1.5 rounded hover:bg-mc-bg-tertiary text-mc-text-secondary disabled:opacity-30"
                 aria-label="Previous question"
               >
@@ -293,7 +371,7 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
               </button>
               <button
                 onClick={() => setActiveIdx(Math.min(total - 1, activeIdx + 1))}
-                disabled={activeIdx === total - 1 || submitting}
+                disabled={activeIdx === total - 1 || submitting || waitingForFury}
                 className="p-1.5 rounded hover:bg-mc-bg-tertiary text-mc-text-secondary disabled:opacity-30"
                 aria-label="Next question"
               >
@@ -301,25 +379,14 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                onClick={submitAnswer}
-                disabled={!selectedId || submitting}
-                className="flex items-center gap-1.5 px-4 min-h-9 rounded-lg bg-mc-bg-tertiary text-mc-text border border-mc-border text-xs font-medium hover:border-mc-accent/40 disabled:opacity-50"
-              >
-                {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                Save & Continue
-              </button>
-              <button
-                onClick={generateTasks}
-                disabled={!allAnswered || generating}
-                className="flex items-center gap-1.5 px-4 min-h-9 rounded-lg bg-mc-accent text-mc-bg text-xs font-medium hover:bg-mc-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                title={!allAnswered ? `Answer all ${total} questions first` : 'Send to Fury for subtask generation'}
-              >
-                {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                {generating ? 'Generating…' : 'Generate Tasks'}
-              </button>
-            </div>
+            <button
+              onClick={submitAnswer}
+              disabled={!selectedId || submitting || waitingForFury}
+              className="flex items-center gap-1.5 px-5 min-h-9 rounded-lg bg-mc-accent text-mc-bg text-xs font-medium hover:bg-mc-accent/90 disabled:opacity-50"
+            >
+              {submitting || waitingForFury ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+              {submitting ? 'Sending…' : waitingForFury ? 'Fury thinking…' : 'Save & Continue'}
+            </button>
           </div>
         </div>
       )}
