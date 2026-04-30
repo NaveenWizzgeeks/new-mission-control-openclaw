@@ -9,21 +9,24 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Dark theme colors matching the screenshot
-        'mc-bg': '#0d1117',
-        'mc-bg-secondary': '#161b22',
-        'mc-bg-tertiary': '#21262d',
-        'mc-border': '#30363d',
-        'mc-text': '#c9d1d9',
-        'mc-text-secondary': '#8b949e',
-        'mc-accent': '#58a6ff',
-        'mc-accent-green': '#3fb950',
-        'mc-accent-yellow': '#d29922',
-        'mc-accent-red': '#f85149',
-        'mc-accent-purple': '#a371f7',
-        'mc-accent-pink': '#db61a2',
-        'mc-accent-cyan': '#39d353',
-        'mc-accent-blue': '#38bdf8',
+        // Theme colors backed by CSS vars defined in globals.css.
+        // Triplets are space-separated R G B; the rgb()-with-alpha-channel
+        // form lets Tailwind opacity modifiers (`bg-mc-accent/20`,
+        // `text-mc-text/70`, etc.) keep working.
+        'mc-bg':              'rgb(var(--mc-bg) / <alpha-value>)',
+        'mc-bg-secondary':    'rgb(var(--mc-bg-secondary) / <alpha-value>)',
+        'mc-bg-tertiary':     'rgb(var(--mc-bg-tertiary) / <alpha-value>)',
+        'mc-border':          'rgb(var(--mc-border) / <alpha-value>)',
+        'mc-text':            'rgb(var(--mc-text) / <alpha-value>)',
+        'mc-text-secondary':  'rgb(var(--mc-text-secondary) / <alpha-value>)',
+        'mc-accent':          'rgb(var(--mc-accent) / <alpha-value>)',
+        'mc-accent-blue':     'rgb(var(--mc-accent-blue) / <alpha-value>)',
+        'mc-accent-green':    'rgb(var(--mc-accent-green) / <alpha-value>)',
+        'mc-accent-yellow':   'rgb(var(--mc-accent-yellow) / <alpha-value>)',
+        'mc-accent-red':      'rgb(var(--mc-accent-red) / <alpha-value>)',
+        'mc-accent-purple':   'rgb(var(--mc-accent-purple) / <alpha-value>)',
+        'mc-accent-pink':     'rgb(var(--mc-accent-pink) / <alpha-value>)',
+        'mc-accent-cyan':     'rgb(var(--mc-accent-cyan) / <alpha-value>)',
       },
       fontFamily: {
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
