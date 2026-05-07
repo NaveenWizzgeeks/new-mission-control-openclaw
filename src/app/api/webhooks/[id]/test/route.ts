@@ -21,7 +21,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   dispatchWebhooks('webhook_test', {
     webhook_id: wh.id,
     name: wh.name,
-    sent_by: 'autensa-mc/manual-test',
+    sent_by: 'mission-control/manual-test',
   });
   return NextResponse.json({ ok: true, queued: true });
 }

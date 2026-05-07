@@ -6,7 +6,7 @@
  */
 
 const BASE = 'https://api.github.com';
-const UA = 'autensa-mc/0.13';
+const UA = 'mission-control/0.13';
 
 export interface GitHubIssue {
   number: number;

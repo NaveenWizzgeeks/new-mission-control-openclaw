@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Autensa (formerly Mission Control) will be documented in this file.
+All notable changes to Mission Control (formerly Mission Control) will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -94,7 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Toast Notification System** — Global toast notifications surface errors, warnings, and status updates in real-time. Error toasts persist until dismissed and include a "Report this issue" action.
-- **Error Reporting via Email** — Users can report issues directly from error toasts or inline error messages. Clicking "Report this issue" opens the default email client pre-filled with error details and recent system logs (autopilot activity, failed cycles, task activities). Reports go to hello@autensa.com.
+- **Error Reporting via Email** — Users can report issues directly from error toasts or inline error messages. Clicking "Report this issue" opens the default email client pre-filled with error details and recent system logs (autopilot activity, failed cycles, task activities). Reports go to your configured support address.
 - **Pending Ideas Badge** — Product cards on the Autopilot listing page (`/autopilot`) now show a red notification badge with the count of pending ideas awaiting review, similar to iPhone app icon badges.
 - **SSE Error Surfacing** — Autopilot errors and cost cap warnings broadcast via Server-Sent Events now appear as toast notifications in real-time, even if the user is on a different tab.
 - **`useErrorReport` Hook** — Reusable hook for triggering error toasts with one-click email reporting from any component.
@@ -142,7 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🚀 Product Autopilot — The World's First Autonomous Product Engine
 
-Autensa v2 transforms from a task orchestration dashboard into the world's first autonomous product improvement engine. Point it at any product and it runs a continuous research → ideation → build loop.
+Mission Control v2 transforms from a task orchestration dashboard into the world's first autonomous product improvement engine. Point it at any product and it runs a continuous research → ideation → build loop.
 
 ### Added
 
@@ -272,7 +272,7 @@ Autensa v2 transforms from a task orchestration dashboard into the world's first
 - Migration 019–021: Workspace isolation (`workspace_ports`, `workspace_merges`), schema refinements
 
 ### Changed
-- **Project identity** — "Mission Control" → "Autensa" throughout. Tagline updated to "The Autonomous Product Engine"
+- **Project identity** — "Mission Control" → "Mission Control" throughout. Tagline updated to "The Autonomous Product Engine"
 - **Architecture** — Added Autopilot Engine layer between dashboard and agent runtime
 - **Task dispatch** — Now supports workspace isolation strategy detection before dispatch. Agents receive isolated paths, ports, branches, and workspace boundaries
 - **Merge on completion** — Task completion triggers workspace merge with product-scoped serialization lock
@@ -360,7 +360,7 @@ Autensa v2 transforms from a task orchestration dashboard into the world's first
 ### Changed
 - **Strict template defaults** — Strict workflow is now default, with review as queue stage and verification owned by the `reviewer` role.
 - **Workspace initialization** — New workspaces can clone workflow templates and bootstrap core agents automatically.
-- **Project branding/docs** — Updated project branding to Autensa (formerly Mission Control) and added explicit privacy-first statement in docs.
+- **Project branding/docs** — Updated project branding to Mission Control (formerly Mission Control) and added explicit privacy-first statement in docs.
 
 ### Fixed
 - **Role mismatch** — Fixed strict template verification role (`verifier` → `reviewer`).

@@ -57,7 +57,7 @@ export function MissionTeamTab({ missionId, parentTaskId, workspaceId }: Mission
               Pick a workflow template and assign agents to each role. Once saved,
               click <strong>Apply to all subtasks</strong> below to propagate this
               configuration across every task in this mission. Without this, the
-              autensa stage handoff (testing → tester, review → reviewer, etc.)
+              stage handoff engine (testing → tester, review → reviewer, etc.)
               has nothing to look up at each transition.
             </p>
           </div>

@@ -21,7 +21,7 @@ const RAW_CATALOG: CatalogRow[] = [
     readme:
       'Grants the agent access to `git diff`. Useful for code review, change summarization, and PR description drafting. ' +
       'No network access; reads from the workspace git index only.',
-    author: 'autensa-core',
+    author: 'mission-control-core',
     version: '1.0.0',
     category: 'github',
     tags: ['git', 'review', 'diff'],
@@ -40,7 +40,7 @@ const RAW_CATALOG: CatalogRow[] = [
     name: 'Git Log (recent)',
     short_description: 'Show the last 20 commits with one-line summary.',
     readme: 'Lets the agent read recent commit history to understand context before making changes.',
-    author: 'autensa-core',
+    author: 'mission-control-core',
     version: '1.0.0',
     category: 'github',
     tags: ['git', 'history'],
@@ -61,7 +61,7 @@ const RAW_CATALOG: CatalogRow[] = [
     readme:
       'Adds the `npx playwright test` runner so the agent can verify UI work end-to-end. ' +
       'Pair with the `web_search` skill to let the agent debug failures by reading docs.',
-    author: 'autensa-core',
+    author: 'mission-control-core',
     version: '1.2.0',
     category: 'testing',
     tags: ['e2e', 'browser', 'qa'],
@@ -80,7 +80,7 @@ const RAW_CATALOG: CatalogRow[] = [
     name: 'NPM Test',
     short_description: 'Run the project\'s npm test script.',
     readme: 'Standard `npm test` runner. Works with any package.json that defines a `test` script.',
-    author: 'autensa-core',
+    author: 'mission-control-core',
     version: '1.0.0',
     category: 'testing',
     tags: ['unit', 'ci'],
@@ -99,7 +99,7 @@ const RAW_CATALOG: CatalogRow[] = [
     name: 'TypeScript Check',
     short_description: 'Type-check the project without emitting output.',
     readme: 'Runs `npx tsc --noEmit` so the agent can self-verify type safety before declaring a task done.',
-    author: 'autensa-core',
+    author: 'mission-control-core',
     version: '1.0.0',
     category: 'dev-tools',
     tags: ['typescript', 'types', 'verify'],
@@ -261,7 +261,7 @@ const RAW_CATALOG: CatalogRow[] = [
     name: 'Project Read-Only File Access',
     short_description: 'Read access to ./src and ./docs.',
     readme: 'Grants the agent read-only access to the source tree and docs. Safe default for review-style agents.',
-    author: 'autensa-core',
+    author: 'mission-control-core',
     version: '1.0.0',
     category: 'dev-tools',
     tags: ['files', 'read-only'],

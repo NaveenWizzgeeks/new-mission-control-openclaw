@@ -4,7 +4,7 @@
  * Fan-out called from `events.ts:broadcast()` (best-effort, non-blocking).
  * For each matching active webhook:
  *   - Build payload `{ id, event, timestamp, data }`
- *   - Sign body with HMAC-SHA256(secret, body) → X-Autensa-Signature header
+ *   - Sign body with HMAC-SHA256(secret, body) → X-Mission-Control-Signature header
  *   - POST with 8s timeout
  *   - Retry 2x with exponential backoff on network/5xx
  *   - Record every attempt to webhook_deliveries
@@ -43,10 +43,10 @@ async function deliverOnce(wh: WebhookRow, eventId: string, eventType: string, b
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-autensa-event': eventType,
-        'x-autensa-event-id': eventId,
-        'x-autensa-signature': signBody(wh.secret, body),
-        'user-agent': 'autensa-mc-webhook/0.13',
+        'x-mission-control-event': eventType,
+        'x-mission-control-event-id': eventId,
+        'x-mission-control-signature': signBody(wh.secret, body),
+        'user-agent': 'mission-control-webhook/0.13',
       },
       body,
       signal: ctl.signal,

@@ -90,7 +90,7 @@ function buildIssueBody(mission: { name: string; stage: string; description: str
   lines.push(`**Stage:** \`${mission.stage}\``);
   if (mission.codebase_path) lines.push(`**Project path:** \`${mission.codebase_path}\``);
   lines.push('');
-  lines.push('_Synced from autensa Mission Control. Subsequent stage transitions update this issue._');
+  lines.push('_Synced from Mission Control. Subsequent stage transitions update this issue._');
   return lines.join('\n');
 }
 

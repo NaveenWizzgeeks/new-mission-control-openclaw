@@ -18,7 +18,7 @@ const BASE = 'https://clawhub.ai';
 const TIMEOUT_MS = 8000;
 const REVALIDATE_S = 300; // 5 minutes — plenty fresh for a browse list.
 
-const UA = 'autensa-mc/0.13 (+https://clawhub.ai)';
+const UA = 'mission-control/0.13 (+https://clawhub.ai)';
 
 export interface ClawHubSkillRow {
   slug: string;

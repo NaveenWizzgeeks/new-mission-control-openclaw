@@ -1,6 +1,10 @@
 'use client';
 
-const REPORT_EMAIL = 'hello@autensa.com';
+// Set this (or NEXT_PUBLIC_REPORT_EMAIL at build time) to the support inbox
+// where Mission Control users should send error reports. Empty string = the
+// "Report this issue" button still opens a draft, but with no recipient
+// pre-filled so the user picks one themselves.
+const REPORT_EMAIL = process.env.NEXT_PUBLIC_REPORT_EMAIL ?? '';
 
 /**
  * Opens the user's default email client with error details + logs pre-filled.

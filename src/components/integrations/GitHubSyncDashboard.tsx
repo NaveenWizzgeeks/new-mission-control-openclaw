@@ -271,7 +271,7 @@ function NewConfigForm({ workspaces, onCancel, onCreated }: { workspaces: Worksp
   const [missionId, setMissionId] = useState('');
   const [repoUrl, setRepoUrl] = useState('');
   const [token, setToken] = useState('');
-  const [label, setLabel] = useState('autensa');
+  const [label, setLabel] = useState('mission-control');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -351,7 +351,7 @@ function NewConfigForm({ workspaces, onCancel, onCreated }: { workspaces: Worksp
       </div>
       <div>
         <label className="block text-[11px] uppercase tracking-wider text-mc-text-secondary mb-1">Default label (optional)</label>
-        <input value={label} onChange={e => setLabel(e.target.value)} placeholder="autensa" className="w-full min-h-9 bg-mc-bg border border-mc-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-mc-accent" />
+        <input value={label} onChange={e => setLabel(e.target.value)} placeholder="mission-control" className="w-full min-h-9 bg-mc-bg border border-mc-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-mc-accent" />
       </div>
 
       {err && <p className="text-xs text-mc-accent-red">{err}</p>}

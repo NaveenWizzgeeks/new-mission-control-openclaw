@@ -149,7 +149,7 @@ export function WebhooksDashboard() {
                 <p className="text-sm font-medium text-mc-text">Webhook &quot;{createdSecret.name}&quot; created.</p>
                 <p className="text-xs text-mc-text-secondary mt-1">
                   Copy the signing secret now — it won&apos;t be shown again. Use it to verify the
-                  <code className="text-mc-accent"> X-Autensa-Signature</code> header on receipt.
+                  <code className="text-mc-accent"> X-Mission-Control-Signature</code> header on receipt.
                 </p>
                 <SecretReveal secret={createdSecret.secret} />
               </div>

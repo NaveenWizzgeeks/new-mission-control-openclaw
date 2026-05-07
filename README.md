@@ -1,8 +1,7 @@
-<h1 align="center">Autensa</h1>
+<h1 align="center">Mission Control</h1>
 
 <p align="center">
-  <em>The World's First Autonomous Product Engine</em><br>
-  <a href="https://autensa.com">autensa.com</a>
+  <em>The Autonomous Product Engine</em>
 </p>
 
 <p align="center">
@@ -11,13 +10,6 @@
 </p>
 
 <p align="center">
-I highly recommend getting Hetzner VPS to run this. <a href="https://hetzner.cloud/?ref=WYxriOUHyTil">You can sign up here.</a>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/github/stars/crshdn/mission-control?style=flat-square" alt="GitHub Stars" />
-  <img src="https://img.shields.io/github/issues/crshdn/mission-control?style=flat-square" alt="GitHub Issues" />
-  <img src="https://img.shields.io/github/license/crshdn/mission-control?style=flat-square" alt="License" />
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" alt="PRs Welcome" />
   <img src="https://img.shields.io/badge/Next.js-14-black?style=flat-square&logo=next.js" alt="Next.js" />
   <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
@@ -25,7 +17,6 @@ I highly recommend getting Hetzner VPS to run this. <a href="https://hetzner.clo
 </p>
 
 <p align="center">
-  <a href="https://missioncontrol.ghray.com"><strong>🎮 Live Demo</strong></a> •
   <a href="#-quick-start">Quick Start</a> •
   <a href="#-docker">Docker</a> •
   <a href="#-whats-new-in-v250">What's New</a> •
@@ -33,10 +24,6 @@ I highly recommend getting Hetzner VPS to run this. <a href="https://hetzner.clo
   <a href="#-how-it-works">How It Works</a> •
   <a href="#-configuration">Configuration</a> •
   <a href="#-contributors">Contributors</a>
-</p>
-
-<p align="center">
-  <a href="https://ghray.com/Autensa_v2.mp4"><strong>▶️ Watch the Autensa v2 Introduction</strong></a>
 </p>
 
 ---
@@ -85,11 +72,11 @@ The Autopilot product settings modal now includes a **Status** dropdown (Active 
 
 ### v2.0 Highlights
 
-Autensa v2 is a ground-up expansion from task orchestration dashboard to **the world's first autonomous product improvement engine**. It researches your market, generates feature ideas, lets you decide with a swipe, and builds them — automatically.
+Mission Control v2 is a ground-up expansion from task orchestration dashboard to **the world's first autonomous product improvement engine**. It researches your market, generates feature ideas, lets you decide with a swipe, and builds them — automatically.
 
 ### 🔬 Product Autopilot — The Full Pipeline
 
-The headline feature. Point Autensa at any product (repo + live URL) and it runs a continuous improvement loop:
+The headline feature. Point Mission Control at any product (repo + live URL) and it runs a continuous improvement loop:
 
 1. **Autonomous Research** — AI agents analyze your codebase, scan your live site, and research your market: competitors, user intent, conversion patterns, SEO gaps, technical opportunities. Runs on configurable schedules — daily, weekly, or on-demand.
 
@@ -257,7 +244,7 @@ Configure autonomous cycles per product:
 
 ## 🛡️ Privacy
 
-Autensa is open-source and self-hosted. The project does **not** include ad trackers, third-party analytics beacons, or a centralized data collector.
+Mission Control is open-source and self-hosted. The project does **not** include ad trackers, third-party analytics beacons, or a centralized data collector.
 
 Your task data, research results, ideas, swipe history, and product programs stay in your own deployment (SQLite + workspace). If you connect external services (AI providers or remote gateways), only the data you explicitly send to those services leaves your environment.
 
@@ -270,7 +257,7 @@ Your task data, research results, ideas, swipe history, and product programs sta
 │                          YOUR MACHINE                                │
 │                                                                      │
 │  ┌──────────────────┐          ┌──────────────────────────────────┐  │
-│  │ Autensa           │◄────────►│    OpenClaw Gateway              │  │
+│  │ Mission Control           │◄────────►│    OpenClaw Gateway              │  │
 │  │  (Next.js)        │   WS     │  (AI Agent Runtime)              │  │
 │  │  Port 4000        │          │  Port 18789                      │  │
 │  └────────┬──────────┘          └───────────┬────────────────────┘  │
@@ -290,7 +277,7 @@ Your task data, research results, ideas, swipe history, and product programs sta
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-**Autensa** = The dashboard + autopilot engine (this project)
+**Mission Control** = The dashboard + autopilot engine (this project)
 **OpenClaw Gateway** = The AI runtime that executes tasks ([separate project](https://github.com/openclaw/openclaw))
 
 ---
@@ -332,7 +319,7 @@ OPENCLAW_GATEWAY_TOKEN=your-token-here
 # Start OpenClaw (separate terminal)
 openclaw gateway start
 
-# Start Autensa
+# Start Mission Control
 npm run dev
 ```
 
@@ -349,7 +336,7 @@ npx next start -p 4000
 
 ## 🐳 Docker
 
-You can run Autensa in a container using the included `Dockerfile` and `docker-compose.yml`.
+You can run Mission Control in a container using the included `Dockerfile` and `docker-compose.yml`.
 
 ### Prerequisites
 
@@ -488,7 +475,7 @@ See [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md) for the full production guide.
 
 ## 🌐 Multi-Machine Setup
 
-Run Autensa on one machine and OpenClaw on another:
+Run Mission Control on one machine and OpenClaw on another:
 
 ```env
 # Point to the remote machine
@@ -524,7 +511,7 @@ Key tables added in v2: `products`, `research_cycles`, `ideas`, `swipe_history`,
 ## 📁 Project Structure
 
 ```
-autensa/
+mission-control/
 ├── src/
 │   ├── app/                    # Next.js pages & API routes
 │   │   ├── api/
@@ -625,7 +612,7 @@ See [Issue #30](https://github.com/crshdn/mission-control/issues/30) for details
 
 ## 👏 Contributors
 
-Autensa is built by a growing community. Thank you to everyone who has contributed!
+Mission Control is built by a growing community. Thank you to everyone who has contributed!
 
 <table>
   <tr>
@@ -872,22 +859,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 [![Anthropic](https://img.shields.io/badge/Anthropic-Claude-orange?style=for-the-badge)](https://www.anthropic.com/)
 
 ---
-
-## ☕ Support
-
-If Autensa has been useful to you, consider buying me a coffee!
-
-<a href="https://buymeacoffee.com/crshdn" target="_blank">
-  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50" />
-</a>
-
----
-
-<p align="center">
-  <a href="https://discord.gg/3u62kySzM">
-    <img src="https://img.shields.io/badge/Join_Our_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join Our Discord" />
-  </a>
-</p>
 
 <p align="center">
   <strong>Stop managing a backlog. Start shipping on autopilot.</strong> 🚀
