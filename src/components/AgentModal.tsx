@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { X, Save, Trash2 } from 'lucide-react';
 import { useMissionControl } from '@/lib/store';
 import type { Agent, AgentStatus } from '@/lib/types';
+import { useConfirm } from '@/components/ConfirmDialog';
+import { Toggle } from '@/components/Toggle';
 
 interface AgentModalProps {
   agent?: Agent;
@@ -16,6 +18,7 @@ const EMOJI_OPTIONS = ['🤖', '🦞', '💻', '🔍', '✍️', '🎨', '📊',
 
 export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: AgentModalProps) {
   const { addAgent, updateAgent, agents } = useMissionControl();
+  const confirmModal = useConfirm();
   const [activeTab, setActiveTab] = useState<'info' | 'soul' | 'user' | 'agents'>('info');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -120,7 +123,13 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
   };
 
   const handleDelete = async () => {
-    if (!agent || !confirm(`Delete ${agent.name}?`)) return;
+    if (!agent) return;
+    if (!await confirmModal({
+      title: `Delete ${agent.name}?`,
+      body: 'Removes the agent and any per-agent skills/memory. Tasks assigned to this agent will keep the assignment but won\'t dispatch.',
+      confirmLabel: 'Delete agent',
+      danger: true,
+    })) return;
 
     try {
       const res = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' });
@@ -255,18 +264,17 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
               </div>
 
               {/* Master Toggle */}
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="is_master"
+              <label className="flex items-center justify-between gap-3 p-3 rounded-lg border border-mc-border bg-mc-bg/40 cursor-pointer hover:bg-mc-bg/60 transition-colors">
+                <span className="text-sm">
+                  <span className="block font-medium">Master Orchestrator</span>
+                  <span className="block text-xs text-mc-text-secondary mt-0.5">Can coordinate other agents in this workspace.</span>
+                </span>
+                <Toggle
                   checked={form.is_master}
-                  onChange={(e) => setForm({ ...form, is_master: e.target.checked })}
-                  className="w-4 h-4"
+                  onChange={(v) => setForm({ ...form, is_master: v })}
+                  ariaLabel="Master orchestrator"
                 />
-                <label htmlFor="is_master" className="text-sm">
-                  Master Orchestrator (can coordinate other agents)
-                </label>
-              </div>
+              </label>
 
               {/* Model Selection */}
               <div>

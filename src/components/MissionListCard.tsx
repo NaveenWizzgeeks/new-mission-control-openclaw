@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { MissionStage } from '@/lib/types';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 export interface MissionListCardData {
   id: string;
@@ -44,6 +45,7 @@ export interface MissionListCardData {
   };
   created_at: string;
   updated_at: string;
+  completed_at?: string | null;
 }
 
 interface MissionListCardProps {
@@ -90,6 +92,7 @@ interface ActionConfig {
 export function MissionListCard({ mission, workspaceSlug, onStageChange, onDeleted }: MissionListCardProps) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const confirmModal = useConfirm();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -183,7 +186,12 @@ export function MissionListCard({ mission, workspaceSlug, onStageChange, onDelet
 
   const handleDelete = async () => {
     setMenuOpen(false);
-    if (!confirm(`Delete mission "${mission.parent_task.title}"? This cannot be undone.`)) return;
+    if (!await confirmModal({
+      title: `Delete mission "${mission.parent_task.title}"?`,
+      body: 'This will also delete all subtasks of the mission. This cannot be undone.',
+      confirmLabel: 'Delete mission',
+      danger: true,
+    })) return;
     setBusy(true);
     setError(null);
     try {
@@ -353,8 +361,26 @@ export function MissionListCard({ mission, workspaceSlug, onStageChange, onDelet
             {mission.git_branch}
           </span>
         )}
-        <span className="ml-auto">
-          {formatDistanceToNow(new Date(mission.updated_at), { addSuffix: true })}
+        <span className="ml-auto flex items-center gap-2 text-[10px]">
+          <span title={`Created ${new Date(mission.created_at).toLocaleString()}`}>
+            🕐 created {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
+          </span>
+          {mission.completed_at ? (
+            <span
+              className="text-mc-accent-green"
+              title={`Completed ${new Date(mission.completed_at).toLocaleString()}`}
+            >
+              ✓ done in {formatElapsed(mission.created_at, mission.completed_at)}
+            </span>
+          ) : mission.mission_stage === 'in_progress' || mission.mission_stage === 'planning' || mission.mission_stage === 'testing' ? (
+            <span className="text-mc-accent-cyan">
+              · running for {formatElapsed(mission.created_at, new Date().toISOString())}
+            </span>
+          ) : (
+            <span title={`Last updated ${new Date(mission.updated_at).toLocaleString()}`}>
+              · updated {formatDistanceToNow(new Date(mission.updated_at), { addSuffix: true })}
+            </span>
+          )}
         </span>
       </div>
 
@@ -365,4 +391,19 @@ export function MissionListCard({ mission, workspaceSlug, onStageChange, onDelet
       )}
     </div>
   );
+}
+
+function formatElapsed(startISO: string, endISO: string): string {
+  const ms = new Date(endISO).getTime() - new Date(startISO).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  if (hr < 24) return `${hr}h ${remMin}m`;
+  const days = Math.floor(hr / 24);
+  const remHr = hr % 24;
+  return `${days}d ${remHr}h`;
 }

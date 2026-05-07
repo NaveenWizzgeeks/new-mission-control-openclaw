@@ -70,6 +70,7 @@ function getMissionById(convoyId: string) {
     failed_subtasks: row.failed_subtasks,
     enable_pipeline: !!row.enable_pipeline,
     enable_existing_codebase: !!row.enable_existing_codebase,
+    auto_propose_enabled: (row as Convoy & { auto_propose_enabled?: number }).auto_propose_enabled !== 0,
     codebase_path: row.codebase_path ?? null,
     git_branch: row.git_branch ?? null,
     tech_stack_hint: row.tech_stack_hint ?? null,
@@ -78,6 +79,7 @@ function getMissionById(convoyId: string) {
     planning_started: !!row.planning_started,
     proposed_tasks_count: row.proposed_tasks_count ?? 0,
     active_agents_count: row.active_agents_count ?? 0,
+    reopened_at: (row as Convoy & { reopened_at?: string | null }).reopened_at ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
     awaiting_input_count: row.awaiting_input_count,
@@ -164,6 +166,7 @@ export async function PATCH(
     setIf('name', 'name');
     setIf('enable_pipeline', 'enable_pipeline', (v) => (v ? 1 : 0));
     setIf('enable_existing_codebase', 'enable_existing_codebase', (v) => (v ? 1 : 0));
+    setIf('auto_propose_enabled', 'auto_propose_enabled', (v) => (v ? 1 : 0));
     setIf('codebase_path', 'codebase_path');
     setIf('git_branch', 'git_branch');
     setIf('tech_stack_hint', 'tech_stack_hint');
@@ -196,13 +199,16 @@ export async function PATCH(
 // inside one transaction before dropping the parent task. The convoys row
 // and convoy_subtasks fall out via the existing CASCADE FKs on parent_task_id.
 //
-// Subtask `tasks` rows are kept by default; pass ?delete_subtasks=true to drop them too.
+// Phase 13N.3: subtasks ARE deleted by default now (was opt-in). Pass
+// ?delete_subtasks=false ONLY when you want to preserve historical subtask
+// rows (e.g., archival before re-creation). The previous default left orphan
+// task rows that got re-dispatched and recreated stray project folders.
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const deleteSubtasks = new URL(request.url).searchParams.get('delete_subtasks') === 'true';
+  const deleteSubtasks = new URL(request.url).searchParams.get('delete_subtasks') !== 'false';
 
   try {
     const db = getDb();

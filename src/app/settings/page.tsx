@@ -13,6 +13,7 @@ import {
   AlertTriangle, Check, Loader2, Cloud, CloudOff, Shield,
 } from 'lucide-react';
 import { getConfig, updateConfig, resetConfig, type MissionControlConfig } from '@/lib/config';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 // ---------------------------------------------------------------------------
 // Types for backup data
@@ -61,6 +62,7 @@ function timeAgo(dateStr: string): string {
 // ---------------------------------------------------------------------------
 
 export default function SettingsPage() {
+  const confirmModal = useConfirm();
   const router = useRouter();
   const [config, setConfig] = useState<MissionControlConfig | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -128,13 +130,17 @@ export default function SettingsPage() {
     }
   };
 
-  const handleReset = () => {
-    if (confirm('Reset all settings to defaults? This cannot be undone.')) {
-      resetConfig();
-      setConfig(getConfig());
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    }
+  const handleReset = async () => {
+    if (!await confirmModal({
+      title: 'Reset all settings?',
+      body: 'Restores defaults for paths, URLs, and preferences. Backups are not affected.',
+      confirmLabel: 'Reset settings',
+      danger: true,
+    })) return;
+    resetConfig();
+    setConfig(getConfig());
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 3000);
   };
 
   const handleChange = <K extends keyof MissionControlConfig>(field: K, value: MissionControlConfig[K]) => {
@@ -194,7 +200,12 @@ export default function SettingsPage() {
   };
 
   const handleDeleteBackup = async (filename: string) => {
-    if (!confirm(`Delete backup "${filename}"? This cannot be undone.`)) return;
+    if (!await confirmModal({
+      title: `Delete backup "${filename}"?`,
+      body: 'Permanently removes this database backup file from disk.',
+      confirmLabel: 'Delete backup',
+      danger: true,
+    })) return;
 
     setIsDeletingBackup(filename);
     setBackupError(null);

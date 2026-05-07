@@ -11,7 +11,7 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 const execFileAsync = promisify(execFile);
@@ -102,11 +102,10 @@ export function resolveTarget(cwd: string): ResolveResult {
   const testRoots = ['tests', 'e2e', 'test', '.'];
   let hasTests = false;
   try {
-    const fs = require('node:fs') as typeof import('node:fs');
     for (const dir of testRoots) {
       const dirPath = path.join(resolvedCwd, dir);
       if (!existsSync(dirPath)) continue;
-      const entries = fs.readdirSync(dirPath);
+      const entries = readdirSync(dirPath);
       if (entries.some(e => /\.(spec|test)\.(ts|js|mjs)$/i.test(e))) { hasTests = true; break; }
     }
   } catch { /* ignore */ }

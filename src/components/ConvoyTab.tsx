@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Play, Pause, RefreshCw, Truck, CheckCircle2, XCircle, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 import { DependencyGraph } from './DependencyGraph';
+import { useConfirm } from '@/components/ConfirmDialog';
 import type { Convoy, ConvoySubtask, Task, ConvoyStatus } from '@/lib/types';
 
 interface ConvoyTabProps {
@@ -34,6 +35,7 @@ interface ProgressData {
 }
 
 export function ConvoyTab({ taskId, taskTitle, taskStatus }: ConvoyTabProps) {
+  const confirmModal = useConfirm();
   const [convoy, setConvoy] = useState<ConvoyData | null>(null);
   const [progress, setProgress] = useState<ProgressData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -143,7 +145,12 @@ export function ConvoyTab({ taskId, taskTitle, taskStatus }: ConvoyTabProps) {
   };
 
   const handleDeleteConvoy = async () => {
-    if (!confirm('Cancel this convoy and delete all sub-tasks?')) return;
+    if (!await confirmModal({
+      title: 'Cancel convoy?',
+      body: 'Removes the convoy and all of its sub-tasks. This cannot be undone.',
+      confirmLabel: 'Cancel convoy',
+      danger: true,
+    })) return;
     try {
       await fetch(`/api/tasks/${taskId}/convoy`, { method: 'DELETE' });
       setConvoy(null);

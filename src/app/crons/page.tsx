@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Clock, Plus, Play, Edit3, Trash2, ToggleLeft, ToggleRight, Loader2, AlertCircle, X, Save, RefreshCw } from 'lucide-react';
 import { formatDistanceToNow, formatDistanceToNowStrict } from 'date-fns';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 const ACTION_TYPES = ['agent_health_check', 'memory_summarize', 'auto_propose', 'codebase_scan', 'custom'] as const;
 type ActionType = typeof ACTION_TYPES[number];
@@ -30,6 +31,7 @@ interface CronRow {
 }
 
 export default function CronsPage() {
+  const confirmModal = useConfirm();
   const [rows, setRows] = useState<CronRow[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null); // id, 'new', or null
@@ -79,7 +81,12 @@ export default function CronsPage() {
   };
 
   const remove = async (id: string, name: string) => {
-    if (!confirm(`Delete cron "${name}"?`)) return;
+    if (!await confirmModal({
+      title: `Delete cron "${name}"?`,
+      body: 'Stops this scheduled job and removes its configuration.',
+      confirmLabel: 'Delete cron',
+      danger: true,
+    })) return;
     setBusyId(id);
     setError(null);
     try {

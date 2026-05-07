@@ -1,7 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Bot, User, Wrench, AlertCircle } from 'lucide-react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
+import { Loader2, Bot, User, AlertCircle } from 'lucide-react';
+import { parseMessage } from './parseMessage';
+import { AttachmentChips } from './AttachmentChips';
+import { MessageBody } from './ToolUseBlock';
+import { parseProposalBlocks } from './parseProposals';
+import { ProposalCard } from './ProposalCard';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -13,15 +18,43 @@ interface ChatStreamProps {
   sessionKey: string | null;
   pollIntervalMs?: number;
   agentName?: string;
+  /** When set, assistant messages are scanned for Fury proposal JSON blocks
+   *  and rendered as inline approval cards that funnel into this mission's
+   *  planner_proposed flow. */
+  missionId?: string;
+  /** Notify parent when subtasks are added — used by the Ask Fury tab to
+   *  refresh mission counters. */
+  onProposalAccepted?: (count: number) => void;
+}
+
+export interface ChatStreamHandle {
+  /** Optimistically push the user's outbound message and surface the
+   *  "thinking" spinner before the next poll round-trip. The optimistic
+   *  bubble is replaced by the canonical one when poll catches up. */
+  pushOptimisticUserMessage: (text: string) => void;
 }
 
 const DEFAULT_POLL_MS = 2_000;
 
-export function ChatStream({ sessionKey, pollIntervalMs = DEFAULT_POLL_MS, agentName }: ChatStreamProps) {
+export const ChatStream = forwardRef<ChatStreamHandle, ChatStreamProps>(function ChatStream(
+  { sessionKey, pollIntervalMs = DEFAULT_POLL_MS, agentName, missionId, onProposalAccepted },
+  ref,
+) {
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
+  // Optimistic bubbles: the user just clicked Send and we haven't seen the
+  // message in poll history yet. We render them with a faded style and clear
+  // them once the canonical text shows up server-side.
+  const [optimisticUser, setOptimisticUser] = useState<{ text: string; ts: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    pushOptimisticUserMessage: (text: string) => {
+      setOptimisticUser({ text, ts: new Date().toISOString() });
+      setIsPending(true);
+    },
+  }), []);
 
   const fetchHistory = useCallback(async (signal?: AbortSignal) => {
     if (!sessionKey) {
@@ -41,15 +74,22 @@ export function ChatStream({ sessionKey, pollIntervalMs = DEFAULT_POLL_MS, agent
       const data = await res.json();
       const next: Message[] = data.messages || [];
       setMessages(prev => {
-        // Detect if assistant is "thinking" — last message is user with no
-        // following assistant. Heuristic for the spinner placement.
         const last = next[next.length - 1];
+        // Only show "thinking" while a user message is the most recent thing
+        // in real history. Optimistic state is handled separately above.
         setIsPending(!!last && last.role === 'user');
-        // No-op when nothing changed (ref equality on length + last text)
         if (prev && prev.length === next.length && prev[prev.length - 1]?.text === next[next.length - 1]?.text) {
           return prev;
         }
         return next;
+      });
+      // Reconcile optimistic bubble: once the canonical user message lands
+      // in history (matching text), drop the optimistic placeholder.
+      setOptimisticUser(prev => {
+        if (!prev) return prev;
+        const trimmed = prev.text.trim();
+        const seen = next.some(m => m.role === 'user' && m.text.trim() === trimmed);
+        return seen ? null : prev;
       });
       setError(null);
     } catch (err) {
@@ -57,14 +97,13 @@ export function ChatStream({ sessionKey, pollIntervalMs = DEFAULT_POLL_MS, agent
     }
   }, [sessionKey]);
 
-  // Reset on session change
   useEffect(() => {
     setMessages(null);
     setError(null);
     setIsPending(false);
+    setOptimisticUser(null);
   }, [sessionKey]);
 
-  // Poll
   useEffect(() => {
     if (!sessionKey) return;
     const ctrl = new AbortController();
@@ -73,11 +112,10 @@ export function ChatStream({ sessionKey, pollIntervalMs = DEFAULT_POLL_MS, agent
     return () => { ctrl.abort(); clearInterval(t); };
   }, [sessionKey, pollIntervalMs, fetchHistory]);
 
-  // Auto-scroll on new content
   useEffect(() => {
     if (!containerRef.current) return;
     containerRef.current.scrollTop = containerRef.current.scrollHeight;
-  }, [messages, isPending]);
+  }, [messages, isPending, optimisticUser]);
 
   if (!sessionKey) {
     return (
@@ -94,6 +132,10 @@ export function ChatStream({ sessionKey, pollIntervalMs = DEFAULT_POLL_MS, agent
     );
   }
 
+  // While thinking + optimistic message is showing, hide the bottom thinking
+  // hint duplication (optimistic bubble already implies "waiting").
+  const showThinking = isPending || optimisticUser !== null;
+
   return (
     <div ref={containerRef} className="flex-1 overflow-y-auto p-6 space-y-3">
       {error && (
@@ -102,15 +144,31 @@ export function ChatStream({ sessionKey, pollIntervalMs = DEFAULT_POLL_MS, agent
         </div>
       )}
 
-      {messages.length === 0 && (
+      {messages.length === 0 && !optimisticUser && (
         <div className="text-mc-text-secondary text-sm text-center py-12">
           No messages yet. Type below to start.
         </div>
       )}
 
-      {messages.map((m, i) => <Bubble key={i} message={m} agentName={agentName} />)}
+      {messages.map((m, i) => (
+        <Bubble
+          key={i}
+          message={m}
+          agentName={agentName}
+          missionId={missionId}
+          onProposalAccepted={onProposalAccepted}
+        />
+      ))}
 
-      {isPending && (
+      {optimisticUser && (
+        <Bubble
+          message={{ role: 'user', text: optimisticUser.text, timestamp: optimisticUser.ts }}
+          agentName={agentName}
+          pending
+        />
+      )}
+
+      {showThinking && (
         <div className="flex items-center gap-2 text-xs text-mc-text-secondary pl-10">
           <Loader2 className="w-3 h-3 animate-spin" />
           <span>{agentName ?? 'Agent'} is thinking…</span>
@@ -118,38 +176,75 @@ export function ChatStream({ sessionKey, pollIntervalMs = DEFAULT_POLL_MS, agent
       )}
     </div>
   );
+});
+
+interface BubbleProps {
+  message: Message;
+  agentName?: string;
+  /** True when this bubble is an optimistic placeholder pre-server-confirm. */
+  pending?: boolean;
+  missionId?: string;
+  onProposalAccepted?: (count: number) => void;
 }
 
-function Bubble({ message, agentName }: { message: Message; agentName?: string }) {
+function Bubble({ message, agentName, pending, missionId, onProposalAccepted }: BubbleProps) {
   const isUser = message.role === 'user';
-  const text = useMemo(() => prettyJson(message.text), [message.text]);
+  const parsed = parseMessage(message.text);
 
-  // Detect tool-call patterns in assistant output. Since we don't have
-  // structured tool blocks (the gateway returns text only), we look for
-  // common "Used: X" / "Tool:" prefixes.
-  const isToolCall = !isUser && /^\s*(?:🔧|Tool:|Used:)/.test(text);
+  // Only scan assistant messages from a mission-aware ChatStream for
+  // proposal JSON blocks. parseProposalBlocks strips the JSON fences from
+  // the visible text and returns the parsed specs separately so we can
+  // render an approval card instead of dumping raw JSON on the user.
+  const proposals = !isUser && missionId
+    ? parseProposalBlocks(parsed.text)
+    : { cleaned: parsed.text, blocks: [] };
 
   return (
     <div className={`flex gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
-      <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${isUser ? 'bg-mc-accent-blue/20 text-mc-accent-blue' : 'bg-mc-accent-purple/20 text-mc-accent-purple'}`}>
-        {isUser ? <User className="w-3.5 h-3.5" /> : (isToolCall ? <Wrench className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />)}
+      <div
+        className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${
+          isUser
+            ? 'bg-mc-accent-blue/20 text-mc-accent-blue'
+            : 'bg-mc-accent-purple/20 text-mc-accent-purple'
+        }`}
+      >
+        {isUser ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
       </div>
-      <div className={`max-w-[80%] rounded-lg px-3 py-2 border ${isUser ? 'bg-mc-accent-blue/5 border-mc-accent-blue/20' : 'bg-mc-bg-secondary border-mc-border'}`}>
+      <div
+        className={`max-w-[80%] rounded-lg px-3 py-2 border min-w-0 ${
+          isUser
+            ? 'bg-mc-accent-blue/5 border-mc-accent-blue/20'
+            : 'bg-mc-bg-secondary border-mc-border'
+        } ${pending ? 'opacity-60' : ''}`}
+      >
         <div className="flex items-center gap-2 mb-1 text-[10px] text-mc-text-secondary">
-          <span className="uppercase tracking-wider font-medium">{isUser ? 'You' : (agentName ?? 'Assistant')}</span>
-          {message.timestamp && <span className="font-mono">{new Date(message.timestamp).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</span>}
+          <span className="uppercase tracking-wider font-medium">
+            {isUser ? 'You' : (agentName ?? 'Assistant')}
+          </span>
+          {pending && (
+            <span className="inline-flex items-center gap-1 text-mc-accent">
+              <Loader2 className="w-2.5 h-2.5 animate-spin" /> sending…
+            </span>
+          )}
+          {!pending && message.timestamp && (
+            <span className="font-mono">
+              {new Date(message.timestamp).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}
+            </span>
+          )}
         </div>
-        <pre className="text-xs text-mc-text whitespace-pre-wrap break-words font-sans leading-relaxed">{text}</pre>
+
+        <MessageBody text={proposals.cleaned} />
+        <AttachmentChips attachments={parsed.attachments} />
+
+        {proposals.blocks.map((block, i) => (
+          <ProposalCard
+            key={i}
+            missionId={missionId!}
+            subtasks={block.subtasks}
+            onAccepted={onProposalAccepted}
+          />
+        ))}
       </div>
     </div>
   );
-}
-
-// If the assistant emitted a JSON object (planning protocol etc), pretty-print.
-function prettyJson(text: string): string {
-  const t = text.trim();
-  if ((t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'))) {
-    try { return JSON.stringify(JSON.parse(t), null, 2); } catch { /* fallthrough */ }
-  }
-  return text;
 }

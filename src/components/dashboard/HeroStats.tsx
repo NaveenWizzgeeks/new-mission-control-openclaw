@@ -4,6 +4,7 @@ import { useCallback, useState, useEffect } from 'react';
 import { Briefcase, Users, Activity, CheckCircle2 } from 'lucide-react';
 import type { Agent, WorkspaceStats } from '@/lib/types';
 import { useDataRefresh } from '@/hooks/useDataRefresh';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 interface TaskStats {
   total: number;
@@ -51,6 +52,7 @@ export function HeroStats() {
 
   useEffect(() => { load(); }, [load]);
   useDataRefresh(['workspaces', 'agents', 'tasks'], load);
+  useLiveRefresh(load);
 
   const inFlight = taskStats
     ? IN_FLIGHT_STATUSES.reduce((sum, s) => sum + (taskStats.by_status[s] ?? 0), 0)

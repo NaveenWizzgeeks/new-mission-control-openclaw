@@ -103,9 +103,12 @@ export async function GET(
       }
     }
 
-    // 4. All workspace agents as fallback
+    // 4. All workspace agents as fallback — include gateway-imported globals
+    // so Fury et al. can be addressed from the chat panel of any workspace.
     const workspaceAgents = queryAll<Agent>(
-      'SELECT * FROM agents WHERE workspace_id = ? ORDER BY name',
+      `SELECT * FROM agents
+       WHERE workspace_id = ? OR source = 'gateway'
+       ORDER BY name`,
       [task.workspace_id || 'default']
     );
     for (const agent of workspaceAgents) {

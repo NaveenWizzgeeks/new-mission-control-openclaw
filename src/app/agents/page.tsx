@@ -93,6 +93,13 @@ export default function AgentsPage() {
             </p>
           </div>
           <Link
+            href="/agents/discover-local"
+            className="text-xs text-mc-text-secondary hover:text-mc-text border border-mc-border rounded-md px-2 py-1 hover:bg-mc-bg-tertiary"
+            title="Scan ~/.claude/agents, ~/.codex/agents, ~/.agents/, ~/.openclaw/agents"
+          >
+            Discover local &rsaquo;
+          </Link>
+          <Link
             href="/settings#agents"
             className="text-xs text-mc-text-secondary hover:text-mc-text"
             title="Manage agent provisioning in Settings"

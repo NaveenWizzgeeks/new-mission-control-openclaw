@@ -308,6 +308,100 @@ CREATE TABLE IF NOT EXISTS agent_skills (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Skill templates (Nexus Phase 13e — role-level intent that propagates to existing + future agents)
+CREATE TABLE IF NOT EXISTS agent_skill_templates (
+  id TEXT PRIMARY KEY,
+  role TEXT NOT NULL,
+  skill_type TEXT NOT NULL CHECK (skill_type IN ('shell', 'mcp', 'prompt_inject', 'file_access')),
+  skill_name TEXT NOT NULL,
+  skill_config TEXT NOT NULL DEFAULT '{}',
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'marketplace_clawhub', 'marketplace_local')),
+  marketplace_slug TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Security findings (Nexus Phase 13f — agent message + tool-call audit log)
+CREATE TABLE IF NOT EXISTS security_findings (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE,
+  session_id TEXT,
+  source TEXT NOT NULL CHECK (source IN ('chat_inbound', 'chat_outbound', 'mcp_call', 'skill_install')),
+  severity TEXT NOT NULL CHECK (severity IN ('critical', 'warning', 'info')),
+  code TEXT NOT NULL,
+  message TEXT NOT NULL,
+  evidence TEXT,
+  resolved INTEGER DEFAULT 0,
+  resolved_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Eval runs (Nexus Phase 13g — per-agent performance metrics + drift detection)
+CREATE TABLE IF NOT EXISTS eval_runs (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  window_start TEXT NOT NULL,
+  window_end TEXT NOT NULL,
+  metrics_json TEXT NOT NULL DEFAULT '{}',
+  baseline_json TEXT NOT NULL DEFAULT '{}',
+  drift_flags_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Webhooks (Nexus Phase 13h — outbound delivery with retry / CB / HMAC)
+CREATE TABLE IF NOT EXISTS webhooks (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL,
+  secret TEXT NOT NULL,
+  events_json TEXT NOT NULL DEFAULT '["*"]',
+  active INTEGER DEFAULT 1,
+  failure_count INTEGER DEFAULT 0,
+  last_success_at TEXT,
+  last_failure_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+  id TEXT PRIMARY KEY,
+  webhook_id TEXT NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  status_code INTEGER,
+  response_excerpt TEXT,
+  error TEXT,
+  attempt INTEGER DEFAULT 1,
+  duration_ms INTEGER,
+  delivered_at TEXT DEFAULT (datetime('now'))
+);
+
+-- GitHub bidirectional sync (Nexus Phase 13i)
+CREATE TABLE IF NOT EXISTS github_sync_config (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+  mission_id TEXT,
+  repo_owner TEXT NOT NULL,
+  repo_name TEXT NOT NULL,
+  token TEXT NOT NULL,
+  default_label TEXT,
+  sync_enabled INTEGER DEFAULT 1,
+  last_sync_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- (Nexus Phase 13N.1: convoys.completed_at column added via migration 041)
+
+CREATE TABLE IF NOT EXISTS github_sync_links (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL,
+  repo_owner TEXT NOT NULL,
+  repo_name TEXT NOT NULL,
+  issue_number INTEGER NOT NULL,
+  issue_state TEXT,
+  last_synced_at TEXT,
+  last_etag TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Memory summaries (Nexus Phase 8 — captured at session completion, preloaded at dispatch)
 CREATE TABLE IF NOT EXISTS memory_summaries (
   id TEXT PRIMARY KEY,
@@ -820,6 +914,18 @@ CREATE INDEX IF NOT EXISTS idx_convoy_subtasks_task ON convoy_subtasks(task_id);
 CREATE INDEX IF NOT EXISTS idx_codebase_cache_mission ON codebase_cache(mission_id);
 CREATE INDEX IF NOT EXISTS idx_agent_skills_agent ON agent_skills(agent_id, enabled);
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_skills_name ON agent_skills(agent_id, skill_name);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_skill_templates_role_name ON agent_skill_templates(role, skill_name);
+CREATE INDEX IF NOT EXISTS idx_skill_templates_role ON agent_skill_templates(role);
+CREATE INDEX IF NOT EXISTS idx_security_findings_agent ON security_findings(agent_id, resolved, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_security_findings_severity ON security_findings(severity, resolved);
+CREATE INDEX IF NOT EXISTS idx_security_findings_session ON security_findings(session_id);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_agent ON eval_runs(agent_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_wh ON webhook_deliveries(webhook_id, delivered_at DESC);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_event ON webhook_deliveries(event_type, delivered_at DESC);
+CREATE INDEX IF NOT EXISTS idx_github_sync_workspace ON github_sync_config(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_github_sync_mission ON github_sync_config(mission_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_github_sync_link_mission ON github_sync_links(mission_id);
+CREATE INDEX IF NOT EXISTS idx_github_sync_link_repo ON github_sync_links(repo_owner, repo_name, issue_number);
 CREATE INDEX IF NOT EXISTS idx_memory_summaries_agent ON memory_summaries(agent_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled_next ON cron_jobs(enabled, next_run);
 CREATE INDEX IF NOT EXISTS idx_agent_health_agent ON agent_health(agent_id);

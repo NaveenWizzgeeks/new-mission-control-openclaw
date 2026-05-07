@@ -2066,6 +2066,285 @@ const migrations: Migration[] = [
         console.log('[Migration 035] Seeded 2 default cron jobs');
       }
     }
+  },
+  {
+    id: '036',
+    name: 'nexus_phase_13e_skill_templates',
+    up: (db) => {
+      // Phase 13e: role-level skill templates.
+      //
+      // Per-agent skills (Migration 033) don't carry across to agents created
+      // in new workspaces. A template captures intent at the ROLE level —
+      // "every Tester gets Playwright" — so installs propagate to existing
+      // matching agents AND any future agent of that role.
+      //
+      // role='*' is the wildcard for "all agents". skill_name uniqueness is
+      // scoped to (role, skill_name) so the same skill can be templated for
+      // multiple roles independently.
+      console.log('[Migration 036] Creating agent_skill_templates table');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS agent_skill_templates (
+          id TEXT PRIMARY KEY,
+          role TEXT NOT NULL,
+          skill_type TEXT NOT NULL CHECK(skill_type IN ('shell', 'mcp', 'prompt_inject', 'file_access')),
+          skill_name TEXT NOT NULL,
+          skill_config TEXT NOT NULL DEFAULT '{}',
+          source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual', 'marketplace_clawhub', 'marketplace_local')),
+          marketplace_slug TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_skill_templates_role_name ON agent_skill_templates(role, skill_name)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_skill_templates_role ON agent_skill_templates(role)`);
+    }
+  },
+  {
+    id: '037',
+    name: 'nexus_phase_13f_security_findings',
+    up: (db) => {
+      // Phase 13f: per-agent security audit log.
+      //
+      // source — where the finding was detected
+      //   'chat_inbound'   — user→agent message contained a pattern
+      //   'chat_outbound'  — agent→user message contained a pattern (leakage)
+      //   'mcp_call'       — an MCP tool call invocation
+      //   'skill_install'  — surfaced from the marketplace install scanner
+      //
+      // severity — 'critical' | 'warning' | 'info' (matches scanner.ts)
+      // resolved — soft-deleted / acknowledged via /security UI
+      console.log('[Migration 037] Creating security_findings table');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS security_findings (
+          id TEXT PRIMARY KEY,
+          agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE,
+          session_id TEXT,
+          source TEXT NOT NULL CHECK(source IN ('chat_inbound', 'chat_outbound', 'mcp_call', 'skill_install')),
+          severity TEXT NOT NULL CHECK(severity IN ('critical', 'warning', 'info')),
+          code TEXT NOT NULL,
+          message TEXT NOT NULL,
+          evidence TEXT,
+          resolved INTEGER DEFAULT 0,
+          resolved_at TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_security_findings_agent ON security_findings(agent_id, resolved, created_at DESC)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_security_findings_severity ON security_findings(severity, resolved)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_security_findings_session ON security_findings(session_id)`);
+    }
+  },
+  {
+    id: '038',
+    name: 'nexus_phase_13g_eval_runs',
+    up: (db) => {
+      // Phase 13g: per-agent evaluation runs.
+      //
+      // metrics_json: { sessions, success_rate, avg_duration_ms, p50, p95, p99, avg_tokens_in, avg_tokens_out }
+      // baseline_json: same shape, computed from the prior 28d window
+      // drift_flags_json: array of { metric, current, baseline, pct_change, regression: true/false }
+      //
+      // window_start/window_end are inclusive bounds in ISO8601.
+      console.log('[Migration 038] Creating eval_runs table');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS eval_runs (
+          id TEXT PRIMARY KEY,
+          agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+          window_start TEXT NOT NULL,
+          window_end TEXT NOT NULL,
+          metrics_json TEXT NOT NULL DEFAULT '{}',
+          baseline_json TEXT NOT NULL DEFAULT '{}',
+          drift_flags_json TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_eval_runs_agent ON eval_runs(agent_id, created_at DESC)`);
+    }
+  },
+  {
+    id: '039',
+    name: 'nexus_phase_13h_webhooks',
+    up: (db) => {
+      // Phase 13h: outbound webhooks with retry, circuit breaker, HMAC.
+      //
+      // events_json — JSON array of event types to subscribe to (e.g.
+      //   ["mission_stage_changed", "task_updated", "agent_health_changed"])
+      //   "*" matches all events.
+      // secret — used to HMAC-SHA256 sign the body; recipient verifies.
+      // failure_count + last_failure_at — circuit breaker. After 5 consecutive
+      //   failures, the webhook is auto-disabled (active=0) until manually
+      //   re-enabled.
+      console.log('[Migration 039] Creating webhooks + webhook_deliveries tables');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS webhooks (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          url TEXT NOT NULL,
+          secret TEXT NOT NULL,
+          events_json TEXT NOT NULL DEFAULT '["*"]',
+          active INTEGER DEFAULT 1,
+          failure_count INTEGER DEFAULT 0,
+          last_success_at TEXT,
+          last_failure_at TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS webhook_deliveries (
+          id TEXT PRIMARY KEY,
+          webhook_id TEXT NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+          event_type TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          status_code INTEGER,
+          response_excerpt TEXT,
+          error TEXT,
+          attempt INTEGER DEFAULT 1,
+          duration_ms INTEGER,
+          delivered_at TEXT DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_wh ON webhook_deliveries(webhook_id, delivered_at DESC)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_event ON webhook_deliveries(event_type, delivered_at DESC)`);
+    }
+  },
+  {
+    id: '040',
+    name: 'nexus_phase_13i_github_sync',
+    up: (db) => {
+      // Phase 13i: bidirectional GitHub Issues sync.
+      //
+      // github_sync_config: per-workspace (or per-mission override) repo +
+      //   token. token is plaintext for v1 — Phase 14 vault will encrypt it.
+      //
+      // github_sync_links: 1:1 mapping mission ↔ GitHub issue. last_synced_at
+      //   short-circuits redundant outbound sync; last_etag short-circuits
+      //   redundant inbound polls.
+      console.log('[Migration 040] Creating github_sync_config + github_sync_links tables');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS github_sync_config (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+          mission_id TEXT,
+          repo_owner TEXT NOT NULL,
+          repo_name TEXT NOT NULL,
+          token TEXT NOT NULL,
+          default_label TEXT,
+          sync_enabled INTEGER DEFAULT 1,
+          last_sync_at TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_github_sync_workspace ON github_sync_config(workspace_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_github_sync_mission ON github_sync_config(mission_id)`);
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS github_sync_links (
+          id TEXT PRIMARY KEY,
+          mission_id TEXT NOT NULL,
+          repo_owner TEXT NOT NULL,
+          repo_name TEXT NOT NULL,
+          issue_number INTEGER NOT NULL,
+          issue_state TEXT,
+          last_synced_at TEXT,
+          last_etag TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_github_sync_link_mission ON github_sync_links(mission_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_github_sync_link_repo ON github_sync_links(repo_owner, repo_name, issue_number)`);
+    }
+  },
+  {
+    id: '041',
+    name: 'nexus_phase_13n_completed_at',
+    up: (db) => {
+      // Phase 13N.1: stamp when a mission actually finishes so the UI can
+      // show "completed in Yh Ym". Backfill from updated_at for missions
+      // already in done stage.
+      console.log('[Migration 041] Adding completed_at to convoys');
+      const cols = db.prepare(`PRAGMA table_info(convoys)`).all() as Array<{ name: string }>;
+      if (!cols.some(c => c.name === 'completed_at')) {
+        db.exec(`ALTER TABLE convoys ADD COLUMN completed_at TEXT`);
+        db.exec(`UPDATE convoys SET completed_at = updated_at WHERE mission_stage = 'done' AND completed_at IS NULL`);
+      }
+    }
+  },
+  {
+    id: '043',
+    name: 'nexus_phase_13s_rejected_at',
+    up: (db) => {
+      // Phase 13S.1: a "rejected" state for tasks (typically planner_proposed
+      // ones the user dismissed). We store it in a separate column instead
+      // of expanding the status CHECK enum (avoids recreating the tasks
+      // table). Rejected tasks:
+      //   - stay in DB so user can recover
+      //   - are excluded from workspace + convoy counters
+      //   - DO NOT block auto-propose (treated as settled)
+      //   - render in a dedicated Rejected column on the kanban
+      console.log('[Migration 043] Adding rejected_at to tasks');
+      const cols = db.prepare(`PRAGMA table_info(tasks)`).all() as Array<{ name: string }>;
+      if (!cols.some(c => c.name === 'rejected_at')) {
+        db.exec(`ALTER TABLE tasks ADD COLUMN rejected_at TEXT`);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_rejected ON tasks(rejected_at) WHERE rejected_at IS NOT NULL`);
+      }
+    }
+  },
+  {
+    id: '042',
+    name: 'nexus_phase_13o_seed_recovery_cron',
+    up: (db) => {
+      // Phase 13O.5: seed a recurring cron that recovers zombie tasks.
+      // Idempotent on name — won't insert if a job with this name already exists.
+      console.log('[Migration 042] Seeding zombie-task recovery cron');
+      const exists = db.prepare(
+        `SELECT id FROM cron_jobs WHERE name = ? LIMIT 1`
+      ).get('Zombie task recovery') as { id: string } | undefined;
+      if (exists) {
+        console.log('[Migration 042] Recovery cron already exists, skipping');
+        return;
+      }
+      const config = JSON.stringify({
+        url: 'http://localhost:4000/api/admin/recover-zombie-tasks',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      db.prepare(`
+        INSERT INTO cron_jobs (id, name, schedule, action_type, action_config, enabled, created_at)
+        VALUES (lower(hex(randomblob(16))), 'Zombie task recovery', '@every 5m', 'custom', ?, 1, datetime('now'))
+      `).run(config);
+      console.log('[Migration 042] Seeded "Zombie task recovery" cron (every 5 min)');
+    }
+  },
+  {
+    id: '044',
+    name: 'add_auto_propose_enabled_to_convoys',
+    up: (db) => {
+      // Phase 13S.14: per-mission toggle for the auto-propose loop.
+      // Default ON to preserve existing behaviour. When 0, the post-done
+      // hook in tasks/[id]/route.ts and the periodic auto_propose cron
+      // both skip this convoy.
+      console.log('[Migration 044] Adding auto_propose_enabled to convoys');
+      const cols = db.prepare(`PRAGMA table_info(convoys)`).all() as Array<{ name: string }>;
+      if (!cols.some(c => c.name === 'auto_propose_enabled')) {
+        db.exec(`ALTER TABLE convoys ADD COLUMN auto_propose_enabled INTEGER DEFAULT 1`);
+      }
+    }
+  },
+  {
+    id: '045',
+    name: 'add_reopened_at_to_convoys',
+    up: (db) => {
+      // Reopen flow: mark a mission as deliberately moved back to active
+      // after being marked done. While reopened_at IS NOT NULL, the GET
+      // self-heal in /api/missions and updateConvoyProgress's auto-status
+      // logic both stop flipping the convoy back to 'done' when counters
+      // say all-complete — otherwise reopen would feel like it bounced.
+      // Cleared on the next legitimate transition into 'done'.
+      console.log('[Migration 045] Adding reopened_at to convoys');
+      const cols = db.prepare(`PRAGMA table_info(convoys)`).all() as Array<{ name: string }>;
+      if (!cols.some(c => c.name === 'reopened_at')) {
+        db.exec(`ALTER TABLE convoys ADD COLUMN reopened_at TEXT`);
+      }
+    }
   }
 ];
 

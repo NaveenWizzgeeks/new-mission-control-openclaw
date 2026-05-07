@@ -11,6 +11,8 @@ interface CreateSubtaskInput {
   description?: string;
   agent_id?: string;
   depends_on?: string[];
+  /** Phase 13L Fix 4: subtask is created in 'planning' status and waits for explicit unblock instead of going straight to 'inbox'. */
+  requires_planning?: boolean;
 }
 
 interface CreateConvoyInput {
@@ -133,9 +135,21 @@ export function getConvoy(parentTaskId: string): (Convoy & { subtasks: (ConvoySu
  * Recalculate convoy progress counters from actual sub-task statuses.
  */
 export function updateConvoyProgress(convoyId: string): void {
+  // Phase 13R.1 + 13S.1 + 13S.16: recompute total_subtasks from actual
+  // convoy_subtasks. EXCLUDES rejected AND planner_proposed. Proposed are
+  // Fury's suggestions awaiting user approval — they shouldn't count as
+  // mission work-in-progress (otherwise progress drops every time Fury
+  // proposes a new one). The badge for proposed_tasks_count shows them
+  // separately. So total = real work the mission committed to.
+  const total = queryOne<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM convoy_subtasks cs JOIN tasks t ON t.id = cs.task_id
+     WHERE cs.convoy_id = ? AND t.rejected_at IS NULL AND t.status != 'planner_proposed'`,
+    [convoyId]
+  )?.cnt || 0;
+
   const completed = queryOne<{ cnt: number }>(
     `SELECT COUNT(*) as cnt FROM convoy_subtasks cs JOIN tasks t ON cs.task_id = t.id
-     WHERE cs.convoy_id = ? AND t.status = 'done'`,
+     WHERE cs.convoy_id = ? AND t.status = 'done' AND t.rejected_at IS NULL`,
     [convoyId]
   )?.cnt || 0;
 
@@ -145,11 +159,43 @@ export function updateConvoyProgress(convoyId: string): void {
     [convoyId]
   )?.cnt || 0;
 
+  // Phase 13S.2: recompute proposed_tasks_count too. autoPropose only writes
+  // it on insert; reject/restore/approve don't touch it, so the badge stays
+  // stale showing rejected items as "active proposals".
+  const proposed = queryOne<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM convoy_subtasks cs JOIN tasks t ON cs.task_id = t.id
+     WHERE cs.convoy_id = ? AND t.status = 'planner_proposed' AND t.rejected_at IS NULL`,
+    [convoyId]
+  )?.cnt || 0;
+
   const now = new Date().toISOString();
   run(
-    `UPDATE convoys SET completed_subtasks = ?, failed_subtasks = ?, updated_at = ? WHERE id = ?`,
-    [completed, failed, now, convoyId]
+    `UPDATE convoys SET total_subtasks = ?, completed_subtasks = ?, failed_subtasks = ?, proposed_tasks_count = ?, updated_at = ? WHERE id = ?`,
+    [total, completed, failed, proposed, now, convoyId]
   );
+
+  // Phase 13S.9: keep convoys.status honest with the actual progress.
+  // checkConvoyCompletion flips it to 'done' when completed === total, but
+  // when new subtasks land later (auto-propose, addSubtasks, restored from
+  // rejected) the status stays 'done' even though work resumed. The
+  // dashboard RecentMissions badge reads from this column, so a half-done
+  // mission was rendering as "Done". We never auto-overwrite 'paused' or
+  // 'failed' — only the active/done axis self-heals here.
+  //
+  // Reopen-aware: when reopened_at IS NOT NULL the operator has explicitly
+  // moved the mission back into active state. Don't auto-flip it to 'done'
+  // until the reopen is rescinded (a legitimate Mark Done clears reopened_at).
+  const before = queryOne<{ status: string; reopened_at: string | null }>(
+    'SELECT status, reopened_at FROM convoys WHERE id = ?',
+    [convoyId],
+  );
+  if (before && before.status !== 'paused' && before.status !== 'failed') {
+    const expected = total > 0 && completed >= total ? 'done' : 'active';
+    const wouldFlipToDone = expected === 'done' && before.status !== 'done';
+    if (before.status !== expected && !(wouldFlipToDone && before.reopened_at)) {
+      run(`UPDATE convoys SET status = ?, updated_at = ? WHERE id = ?`, [expected, now, convoyId]);
+    }
+  }
 
   const convoy = queryOne<Convoy>('SELECT * FROM convoys WHERE id = ?', [convoyId]);
   if (convoy) {
@@ -374,16 +420,17 @@ export function addSubtasks(convoyId: string, subtasks: CreateSubtaskInput[]): C
   const created: ConvoySubtask[] = [];
   const now = new Date().toISOString();
 
-  return transaction(() => {
+  const result = transaction(() => {
     for (let i = 0; i < subtasks.length; i++) {
       const sub = subtasks[i];
       const subtaskId = uuidv4();
       const convoySubtaskId = uuidv4();
 
+      const initialStatus = sub.requires_planning ? 'planning' : 'inbox';
       run(
         `INSERT INTO tasks (id, title, description, status, priority, assigned_agent_id, workspace_id, business_id, workflow_template_id, convoy_id, is_subtask, created_at, updated_at)
-         VALUES (?, ?, ?, 'inbox', ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-        [subtaskId, sub.title, sub.description || null, parentTask.priority, sub.agent_id || null, parentTask.workspace_id, parentTask.business_id, parentTask.workflow_template_id || null, convoyId, now, now]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+        [subtaskId, sub.title, sub.description || null, initialStatus, parentTask.priority, sub.agent_id || null, parentTask.workspace_id, parentTask.business_id, parentTask.workflow_template_id || null, convoyId, now, now]
       );
 
       run(
@@ -395,14 +442,24 @@ export function addSubtasks(convoyId: string, subtasks: CreateSubtaskInput[]): C
       created.push({ id: convoySubtaskId, convoy_id: convoyId, task_id: subtaskId, sort_order: maxOrder + i + 1, depends_on: sub.depends_on, created_at: now });
     }
 
-    // Update total count
-    run(
-      `UPDATE convoys SET total_subtasks = total_subtasks + ?, updated_at = ? WHERE id = ?`,
-      [subtasks.length, now, convoyId]
-    );
-
     return created;
   });
+
+  // Recompute counters from truth instead of incrementing. The previous
+  // approach (total_subtasks += N here, no matching decrement on task DELETE)
+  // is what kept producing "13 of 12" drift after add+delete cycles.
+  // updateConvoyProgress runs a fresh COUNT(*) and broadcasts.
+  updateConvoyProgress(convoyId);
+
+  // Phase 13L Fix 1: auto-drain after planning-driven subtask creation.
+  // Mirrors createConvoy's behaviour so subtasks added via the planning
+  // pipeline (mission planning/poll) start running without manual nudging.
+  // Fire-and-forget; never block the caller on dispatch.
+  dispatchReadyConvoySubtasks(convoyId).catch(err =>
+    console.error('[Convoy] addSubtasks auto-drain failed:', err)
+  );
+
+  return result;
 }
 
 /**
@@ -425,15 +482,45 @@ export function setMissionStage(convoyId: string, stage: MissionStage, actor: st
   if (!convoy) throw new Error(`Convoy ${convoyId} not found`);
 
   const now = new Date().toISOString();
-  run(`UPDATE convoys SET mission_stage = ?, updated_at = ? WHERE id = ?`, [stage, now, convoyId]);
+  // Phase 13N.1: stamp completed_at when transitioning into 'done' so the
+  // UI can show "completed in Xh Ym". Idempotent — only set on first transition.
+  // Mark Done after a reopen: clear reopened_at so the self-heal stops
+  // suppressing auto-status flips on this mission going forward.
+  if (stage === 'done') {
+    run(
+      `UPDATE convoys SET mission_stage = ?, updated_at = ?, completed_at = COALESCE(completed_at, ?), reopened_at = NULL WHERE id = ?`,
+      [stage, now, now, convoyId],
+    );
+  } else {
+    run(`UPDATE convoys SET mission_stage = ?, updated_at = ? WHERE id = ?`, [stage, now, convoyId]);
+  }
 
   const updated = queryOne<Convoy>('SELECT * FROM convoys WHERE id = ?', [convoyId])!;
   broadcast({ type: 'convoy_progress', payload: updated });
+  // Phase 13i: surface mission_stage_changed as its own event type so webhooks
+  // and the GitHub sync hook can subscribe without polling convoy_progress.
+  broadcast({ type: 'mission_stage_changed', payload: { convoy_id: convoyId, stage, actor, mission_name: updated.name } });
 
   run(
     `INSERT INTO events (id, type, task_id, message, created_at) VALUES (?, ?, ?, ?, ?)`,
     [uuidv4(), 'mission_stage_changed', convoy.parent_task_id, `Mission stage → ${stage} (by ${actor})`, now]
   );
+
+  // Phase 13i: outbound GitHub sync. Fire-and-forget; never block stage
+  // transition on a missing config or GH outage.
+  void (async () => {
+    try {
+      const { syncMissionToGitHub } = await import('@/lib/github/sync');
+      const result = await syncMissionToGitHub(convoyId);
+      if (result.ok && result.action !== 'noop') {
+        console.log(`[github sync] mission ${convoyId} → issue #${result.issue_number} (${result.action})`);
+      } else if (!result.ok && result.error && !result.error.includes('No GitHub sync config')) {
+        console.warn(`[github sync] mission ${convoyId} sync failed:`, result.error);
+      }
+    } catch (err) {
+      console.error('[github sync] outbound failed:', err);
+    }
+  })();
 
   return updated;
 }

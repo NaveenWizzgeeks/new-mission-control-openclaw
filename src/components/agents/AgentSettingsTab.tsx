@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Save, Trash2, Crown } from 'lucide-react';
 import type { Agent } from '@/lib/types';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface AgentSettingsTabProps {
   agent: Agent & { is_lead?: boolean; is_global?: boolean };
@@ -12,6 +13,7 @@ interface AgentSettingsTabProps {
 
 export function AgentSettingsTab({ agent, onAgentUpdated }: AgentSettingsTabProps) {
   const router = useRouter();
+  const confirmModal = useConfirm();
   const [name, setName] = useState(agent.name);
   const [role, setRole] = useState(agent.role);
   const [description, setDescription] = useState(agent.description || '');
@@ -77,7 +79,12 @@ export function AgentSettingsTab({ agent, onAgentUpdated }: AgentSettingsTabProp
   };
 
   const remove = async () => {
-    if (!confirm(`Delete agent "${agent.name}"? This cannot be undone.`)) return;
+    if (!await confirmModal({
+      title: `Delete agent "${agent.name}"?`,
+      body: 'The agent and all its skills, memory summaries, and history will be removed. This cannot be undone.',
+      confirmLabel: 'Delete agent',
+      danger: true,
+    })) return;
     setBusy('delete');
     setError(null);
     try {

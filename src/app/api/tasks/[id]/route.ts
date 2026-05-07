@@ -201,6 +201,23 @@ export async function PATCH(
         auditBoardOverride(id, existing.status, nextStatus, body.override_reason);
       }
 
+      // Clear stale failure flag on forward transitions out of a remediation
+      // state. Once the work has cleared the post-failure stages, the prior
+      // "Failed: …" reason is misleading in the UI, blocks taskCanBeDone(),
+      // and confuses watchdog logic that string-matches "fail". Only clear
+      // when the caller didn't pass an explicit new reason.
+      const isRemediationForward =
+        ['assigned', 'in_progress'].includes(existing.status) &&
+        ['testing', 'review', 'verification', 'done'].includes(nextStatus);
+      if (
+        isRemediationForward &&
+        existing.status_reason &&
+        validatedData.status_reason === undefined
+      ) {
+        updates.push('status_reason = ?');
+        values.push(null);
+      }
+
       // Auto-dispatch when moving to assigned (if we have a valid assignee)
       if (nextStatus === 'assigned' && effectiveAssignedAgentId) {
         shouldDispatch = true;
@@ -455,6 +472,7 @@ export async function PATCH(
               SELECT COUNT(*) as n FROM convoy_subtasks cs
               JOIN tasks t ON cs.task_id = t.id
               WHERE cs.convoy_id = ? AND t.status NOT IN ('done', 'planner_proposed')
+                AND t.rejected_at IS NULL
             `).get(convoyId) as { n: number };
             if (open.n === 0) {
               import('@/lib/missions/autoPropose').then(({ triggerProposal }) =>
@@ -556,6 +574,18 @@ export async function DELETE(
 
     // Now delete the task (cascades to task_activities and task_deliverables)
     run('DELETE FROM tasks WHERE id = ?', [id]);
+
+    // Recompute the parent convoy's counters from truth so the dashboard
+    // doesn't show drift like "13/12 done" after a delete. Cheap COUNT(*)
+    // queries; safe to call even if the convoy itself was already deleted
+    // above (no-op when the row's gone).
+    if (existing.convoy_id) {
+      try {
+        updateConvoyProgress(existing.convoy_id);
+      } catch (err) {
+        console.error('[task DELETE] updateConvoyProgress failed:', err);
+      }
+    }
 
     // Broadcast deletion via SSE
     broadcast({

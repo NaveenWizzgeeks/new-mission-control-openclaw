@@ -7,6 +7,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Bot, CheckCircle, Circle, XCircle, Trash2, Check } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface SessionWithAgent {
   id: string;
@@ -28,6 +29,7 @@ interface SessionsListProps {
 }
 
 export function SessionsList({ taskId }: SessionsListProps) {
+  const confirmModal = useConfirm();
   const [sessions, setSessions] = useState<SessionWithAgent[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -109,7 +111,12 @@ export function SessionsList({ taskId }: SessionsListProps) {
   };
 
   const handleDelete = async (sessionId: string) => {
-    if (!confirm('Delete this sub-agent session?')) return;
+    if (!await confirmModal({
+      title: 'Delete sub-agent session?',
+      body: 'Removes the session record and ends any in-progress agent work tied to it.',
+      confirmLabel: 'Delete session',
+      danger: true,
+    })) return;
     try {
       const res = await fetch(`/api/openclaw/sessions/${sessionId}`, {
         method: 'DELETE',

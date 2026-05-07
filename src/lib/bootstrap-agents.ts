@@ -9,6 +9,7 @@
 import Database from 'better-sqlite3';
 import { getDb } from '@/lib/db';
 import { getMissionControlUrl } from '@/lib/config';
+import { applyTemplatesToAgent } from '@/lib/skill-templates';
 
 // ── Agent Definitions ──────────────────────────────────────────────
 
@@ -246,7 +247,18 @@ export function bootstrapCoreAgentsRaw(
       now,
       now,
     );
-    console.log(`[Bootstrap] Created ${agent.name} (${agent.role}) for workspace ${workspaceId}`);
+    // Phase 13e: inherit any role-level skill templates so this brand-new
+    // agent automatically gets the same skills its role siblings have in
+    // other workspaces.
+    try {
+      const { applied } = applyTemplatesToAgent(db, { id, role: agent.role });
+      const tail = applied > 0 ? ` (+ ${applied} templated skill${applied === 1 ? '' : 's'})` : '';
+      console.log(`[Bootstrap] Created ${agent.name} (${agent.role}) for workspace ${workspaceId}${tail}`);
+    } catch (err) {
+      // Templates are non-essential — never block bootstrap on them.
+      console.error(`[Bootstrap] template apply failed for ${agent.name}:`, err);
+      console.log(`[Bootstrap] Created ${agent.name} (${agent.role}) for workspace ${workspaceId}`);
+    }
   }
 }
 

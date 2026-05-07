@@ -3,7 +3,7 @@
 import { FileText, MessageSquareQuote, ListTodo, FlaskConical, CheckCircle2, ChevronRight } from 'lucide-react';
 import type { MissionStage } from '@/lib/types';
 
-export type MissionTabKey = 'overview' | 'tasks' | 'team' | 'tests';
+export type MissionTabKey = 'overview' | 'tasks' | 'team' | 'tests' | 'ask-fury';
 
 interface PipelineStep {
   key: MissionTabKey;

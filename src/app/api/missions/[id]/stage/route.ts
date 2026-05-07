@@ -42,26 +42,32 @@ export async function PATCH(
       );
     }
 
-    // Nexus single-active-mission enforcement: at most one mission may be in_progress
-    // globally. Skip the check if the target mission is already in_progress (idempotent).
+    // Phase 13S.7: single-active-mission is now scoped per workspace, not
+    // global. Different workspaces are independent projects so they can run
+    // missions in parallel. Idempotent if the target mission is already
+    // in_progress.
     if (stage === 'in_progress' && convoy.mission_stage !== 'in_progress') {
-      const conflict = db.prepare(`
-        SELECT c.id, c.name, t.workspace_id
-        FROM convoys c
-        JOIN tasks t ON c.parent_task_id = t.id
-        WHERE c.mission_stage = 'in_progress' AND c.id != ?
-        LIMIT 1
-      `).get(convoyId) as { id: string; name: string; workspace_id: string } | undefined;
+      const parentRow = db.prepare(`SELECT workspace_id FROM tasks WHERE id = ?`).get(convoy.parent_task_id) as { workspace_id: string } | undefined;
+      const targetWorkspaceId = parentRow?.workspace_id;
+      if (targetWorkspaceId) {
+        const conflict = db.prepare(`
+          SELECT c.id, c.name, t.workspace_id
+          FROM convoys c
+          JOIN tasks t ON c.parent_task_id = t.id
+          WHERE c.mission_stage = 'in_progress' AND c.id != ? AND t.workspace_id = ?
+          LIMIT 1
+        `).get(convoyId, targetWorkspaceId) as { id: string; name: string; workspace_id: string } | undefined;
 
-      if (conflict) {
-        return NextResponse.json(
-          {
-            error: 'Another mission is already in progress. Complete or pause it first.',
-            code: 'mission_in_progress_conflict',
-            conflicting_mission: { id: conflict.id, name: conflict.name, workspace_id: conflict.workspace_id },
-          },
-          { status: 409 }
-        );
+        if (conflict) {
+          return NextResponse.json(
+            {
+              error: 'Another mission in this workspace is already in progress. Complete or pause it first.',
+              code: 'mission_in_progress_conflict',
+              conflicting_mission: { id: conflict.id, name: conflict.name, workspace_id: conflict.workspace_id },
+            },
+            { status: 409 }
+          );
+        }
       }
     }
 

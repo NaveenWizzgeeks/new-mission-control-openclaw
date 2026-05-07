@@ -25,14 +25,23 @@ export async function GET(request: NextRequest) {
       const workspaces = db.prepare('SELECT * FROM workspaces ORDER BY name').all() as Workspace[];
       
       const stats: WorkspaceStats[] = workspaces.map(workspace => {
-        // Get task counts by status
+        // Phase 13N.2 + 13P.3 + 13S.15 + 13S.16: workspace task count =
+        // subtasks of active missions, excluding mission-parents, rejected,
+        // proposed (suggestions until approved), AND standalone tasks
+        // (those have their own panel and shouldn't inflate the workspace
+        // mission progress).
         const taskCounts = db.prepare(`
-          SELECT status, COUNT(*) as count 
-          FROM tasks 
-          WHERE workspace_id = ? 
-          GROUP BY status
+          SELECT t.status AS status, COUNT(*) as count
+          FROM tasks t
+          JOIN convoys c ON c.id = t.convoy_id
+          WHERE t.workspace_id = ?
+            AND c.mission_stage != 'done'
+            AND t.id NOT IN (SELECT parent_task_id FROM convoys)
+            AND t.rejected_at IS NULL
+            AND t.status != 'planner_proposed'
+          GROUP BY t.status
         `).all(workspace.id) as { status: TaskStatus; count: number }[];
-        
+
         const counts: WorkspaceStats['taskCounts'] = {
           pending_dispatch: 0,
           planning: 0,
@@ -47,25 +56,40 @@ export async function GET(request: NextRequest) {
           done: 0,
           total: 0
         };
-        
+
         taskCounts.forEach(tc => {
           counts[tc.status] = tc.count;
           counts.total += tc.count;
         });
-        
+
+        // Mission breakdown — separate from task counts so the UI can show
+        // "N active missions" alongside "N subtasks".
+        const missionRow = db.prepare(`
+          SELECT
+            SUM(CASE WHEN c.mission_stage IN ('backlog', 'planning', 'in_progress', 'testing', 'paused') THEN 1 ELSE 0 END) AS active,
+            SUM(CASE WHEN c.mission_stage = 'done' THEN 1 ELSE 0 END) AS done
+          FROM convoys c
+          JOIN tasks t ON t.id = c.parent_task_id
+          WHERE t.workspace_id = ?
+        `).get(workspace.id) as { active: number; done: number } | undefined;
+
         // Get agent count
         const agentCount = db.prepare(
           'SELECT COUNT(*) as count FROM agents WHERE workspace_id = ?'
         ).get(workspace.id) as { count: number };
-        
+
         return {
           id: workspace.id,
           name: workspace.name,
           slug: workspace.slug,
           icon: workspace.icon,
           taskCounts: counts,
-          agentCount: agentCount.count
-        };
+          agentCount: agentCount.count,
+          missionCounts: {
+            active: missionRow?.active ?? 0,
+            done: missionRow?.done ?? 0,
+          },
+        } as WorkspaceStats;
       });
       
       return NextResponse.json(stats);

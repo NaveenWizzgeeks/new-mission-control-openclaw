@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Target, ArrowRight } from 'lucide-react';
 import { useDataRefresh } from '@/hooks/useDataRefresh';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 import type { Workspace } from '@/lib/types';
 
 interface MissionRow {
@@ -58,6 +59,7 @@ export function RecentMissions() {
 
   useEffect(() => { load(); }, [load]);
   useDataRefresh(['workspaces', 'tasks'], load);
+  useLiveRefresh(load);
 
   return (
     <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5 flex flex-col h-[26rem]">

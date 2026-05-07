@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { GitBranch, HardDrive, Merge, Trash2, Loader, AlertTriangle, Check, FolderOpen } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface WorkspaceStatus {
   exists: boolean;
@@ -24,6 +25,7 @@ interface WorkspaceTabProps {
 }
 
 export function WorkspaceTab({ taskId, taskStatus }: WorkspaceTabProps) {
+  const confirmModal = useConfirm();
   const [workspace, setWorkspace] = useState<WorkspaceStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
@@ -200,8 +202,13 @@ export function WorkspaceTab({ taskId, taskStatus }: WorkspaceTabProps) {
           </div>
         )}
         <button
-          onClick={() => {
-            if (confirm('Remove this workspace? This cannot be undone.')) doAction('cleanup');
+          onClick={async () => {
+            if (await confirmModal({
+              title: 'Remove workspace?',
+              body: 'Deletes the worktree/sandbox directory for this task. Branch is preserved; uncommitted changes inside the worktree will be lost.',
+              confirmLabel: 'Remove workspace',
+              danger: true,
+            })) doAction('cleanup');
           }}
           disabled={acting !== null}
           className="min-h-11 px-3 rounded-lg border border-mc-border text-mc-text-secondary hover:text-red-400 hover:border-red-400/30 disabled:opacity-50 flex items-center justify-center"

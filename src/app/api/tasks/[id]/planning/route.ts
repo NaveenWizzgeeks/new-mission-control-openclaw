@@ -141,14 +141,29 @@ export async function POST(
     const planningPrefix = basePrefix + 'planning:';
     const sessionKey = `${planningPrefix}${taskId}`;
 
+    // Phase 13Q.1: when this task is a subtask of a mission, inject the
+    // mission's name, codebase path, and progress summary so the planner
+    // doesn't ask the user for context that already exists.
+    let missionContextBlock = '';
+    try {
+      const taskWithConvoy = task as typeof task & { convoy_id?: string | null };
+      if (taskWithConvoy.convoy_id) {
+        const { buildMissionProgressBlock } = await import('@/lib/missions/progressContext');
+        missionContextBlock = buildMissionProgressBlock(taskId);
+      }
+    } catch (err) {
+      console.error('[planning] failed to build mission context for subtask:', err);
+    }
+
     // Build the initial planning prompt
     const planningPrompt = `PLANNING REQUEST
 
 Task Title: ${task.title}
 Task Description: ${task.description || 'No description provided'}
-
+${missionContextBlock}
 You are starting a planning session for this task. Read PLANNING.md for your protocol.
 
+${missionContextBlock ? 'IMPORTANT: this task belongs to the mission described above. Do NOT ask about project structure, location, or stack — that\'s known. Focus questions on what this specific subtask needs to do.\n' : ''}
 Generate your FIRST question to understand what the user needs. Remember:
 - Questions must be multiple choice
 - Include an "Other" option

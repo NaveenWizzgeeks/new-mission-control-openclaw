@@ -15,11 +15,13 @@ import { ActivityPanel } from '@/components/autopilot/ActivityPanel';
 import { openErrorReport } from '@/components/ErrorReportModal';
 import { useToast } from '@/components/Toast';
 import type { Product } from '@/lib/types';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 type Tab = 'swipe' | 'ideas' | 'research' | 'build' | 'costs' | 'program' | 'maybe';
 type PipelineState = 'idle' | 'researching' | 'ideating' | 'done' | 'error';
 
 export default function ProductDashboardPage() {
+  const confirmModal = useConfirm();
   const { productId } = useParams<{ productId: string }>();
   const [product, setProduct] = useState<Product | null>(null);
   const [tab, setTab] = useState<Tab>('swipe');
@@ -448,7 +450,12 @@ export default function ProductDashboardPage() {
                   <button
                     type="button"
                     onClick={async () => {
-                      if (!confirm(`Archive "${product.name}"? It will be hidden from the dashboard but data is preserved.`)) return;
+                      if (!await confirmModal({
+                        title: `Archive "${product.name}"?`,
+                        body: 'Hides this product from the dashboard. Ideas, missions, and history are preserved.',
+                        confirmLabel: 'Archive product',
+                        danger: true,
+                      })) return;
                       try {
                         const res = await fetch(`/api/products/${productId}`, { method: 'DELETE' });
                         if (res.ok) {

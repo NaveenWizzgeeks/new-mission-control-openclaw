@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { broadcast } from '@/lib/events';
 import { CreateActivitySchema } from '@/lib/validation';
+import { scheduleAutoPromote } from '@/lib/auto-promote';
 import type { TaskActivity } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -149,6 +150,20 @@ export async function POST(
       type: 'activity_logged',
       payload: result,
     });
+
+    // Auto-promote on completion. Agents are dispatched with a two-step
+    // protocol (log activity → PATCH status) but LLMs frequently drop the
+    // second step. Schedule a delayed auto-promote so a well-behaved agent's
+    // own PATCH wins the race in the happy path; if it forgets, we
+    // self-heal instead of letting the watchdog re-dispatch the same work.
+    if (activity_type === 'completed') {
+      const currentStatus = db
+        .prepare('SELECT status FROM tasks WHERE id = ?')
+        .get(taskId) as { status: string } | undefined;
+      if (currentStatus) {
+        scheduleAutoPromote(taskId, currentStatus.status);
+      }
+    }
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {

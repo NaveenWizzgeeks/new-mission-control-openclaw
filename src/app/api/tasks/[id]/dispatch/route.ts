@@ -12,6 +12,7 @@ import { buildCheckpointContext } from '@/lib/checkpoint';
 import { formatMailForDispatch } from '@/lib/mailbox';
 import { getPendingNotesForDispatch } from '@/lib/task-notes';
 import { createTaskWorkspace, determineIsolationStrategy } from '@/lib/workspace-isolation';
+import { attachChatListener, expectDispatchReply } from '@/lib/chat-listener';
 import type { Task, Agent, Product, OpenClawSession, WorkflowStage, TaskImage } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -47,16 +48,26 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
+    // Phase 13S.3: pick the agent whose role matches the *current* task status,
+    // not whichever agent was assigned at task creation. Without this, a task
+    // built by Builder that moved to 'testing' on completion gets re-dispatched
+    // back to Builder (same role) instead of going to Tester. We re-pick when
+    // the assigned agent's role doesn't match the status's expected role.
+    const statusRoleMap: Record<string, string> = {
+      assigned: 'builder',
+      in_progress: 'builder',
+      testing: 'tester',
+      review: 'reviewer',
+      verification: 'reviewer',
+    };
+    const expectedRole = statusRoleMap[task.status] || 'builder';
     let assignedAgentId = task.assigned_agent_id;
-    if (!assignedAgentId) {
-      const statusRoleMap: Record<string, string> = {
-        assigned: 'builder',
-        in_progress: 'builder',
-        testing: 'tester',
-        review: 'reviewer',
-        verification: 'reviewer',
-      };
-      const dynamicAgent = pickDynamicAgent(id, statusRoleMap[task.status] || 'builder');
+    const currentAgentRole = assignedAgentId
+      ? queryOne<{ role: string }>('SELECT role FROM agents WHERE id = ?', [assignedAgentId])?.role
+      : null;
+    const roleMismatch = !!assignedAgentId && currentAgentRole && currentAgentRole !== expectedRole;
+    if (!assignedAgentId || roleMismatch) {
+      const dynamicAgent = pickDynamicAgent(id, expectedRole);
       if (dynamicAgent) {
         assignedAgentId = dynamicAgent.id;
         run('UPDATE tasks SET assigned_agent_id = ?, updated_at = datetime(\'now\') WHERE id = ?', [assignedAgentId, id]);
@@ -189,20 +200,45 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       urgent: '🔴'
     }[task.priority] || '⚪';
 
-    // Get project path for deliverables — with workspace isolation if needed
+    // Get project path for deliverables.
+    //
+    // Phase 13L Fix 2: subtasks of a mission with a fixed codebase_path
+    // share that one path so every agent works in the same project tree
+    // (no more per-subtask folders). Only standalone tasks fall back to
+    // the title-derived directory.
     const projectsPath = getProjectsPath();
-    const projectDir = task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    let taskProjectDir = `${projectsPath}/${projectDir}`;
     const missionControlUrl = getMissionControlUrl();
 
-    // Create isolated workspace if parallel builds are possible
-    // Only for builder dispatches (assigned/in_progress), not tester/reviewer
+    let taskProjectDir: string;
+    let usingMissionPath = false;
+    const taskWithConvoy = task as Task & { convoy_id?: string | null };
+    if (taskWithConvoy.convoy_id) {
+      const { queryOne: _q } = await import('@/lib/db');
+      const missionRow = _q<{ codebase_path: string | null }>(
+        `SELECT codebase_path FROM convoys WHERE id = ?`,
+        [taskWithConvoy.convoy_id],
+      );
+      if (missionRow?.codebase_path && missionRow.codebase_path.trim().length > 0) {
+        taskProjectDir = missionRow.codebase_path.trim();
+        usingMissionPath = true;
+      } else {
+        const projectDir = task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        taskProjectDir = `${projectsPath}/${projectDir}`;
+      }
+    } else {
+      const projectDir = task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      taskProjectDir = `${projectsPath}/${projectDir}`;
+    }
+
+    // Create isolated workspace ONLY when there's no shared mission path.
+    // With a fixed mission path, isolation would create a divergent worktree
+    // and defeat the "one canonical project" rule.
     let workspaceIsolated = false;
     let workspaceBranchName: string | undefined;
     let workspacePort: number | undefined;
     const isolationStrategy = determineIsolationStrategy(task as Task);
     const isBuilderDispatch = task.status === 'assigned' || task.status === 'in_progress' || task.status === 'inbox';
-    if (isolationStrategy && isBuilderDispatch) {
+    if (isolationStrategy && isBuilderDispatch && !usingMissionPath) {
       try {
         const workspace = await createTaskWorkspace(task as Task);
         taskProjectDir = workspace.path;
@@ -213,6 +249,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       } catch (err) {
         console.warn(`[Dispatch] Workspace isolation failed, using default path:`, (err as Error).message);
       }
+    } else if (usingMissionPath) {
+      console.log(`[Dispatch] Using shared mission codebase path for task ${task.id}: ${taskProjectDir}`);
     }
 
     // Parse planning_spec and planning_agents if present (stored as JSON text on the task row)
@@ -306,6 +344,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       if (memoryBlock) skillsSection = `${skillsSection}${memoryBlock}`;
     } catch (err) {
       console.error('[Dispatch] memory context load failed:', err);
+    }
+
+    // Phase 13L Fix 3: shared mission progress context. For subtasks of a
+    // mission, prepend a block listing what's already been done by other
+    // agents (with deliverables + summaries), what's running in parallel,
+    // and what's queued. Eliminates duplicate work across agents.
+    try {
+      const { buildMissionProgressBlock } = await import('@/lib/missions/progressContext');
+      const progressBlock = buildMissionProgressBlock(id);
+      if (progressBlock) skillsSection = `${skillsSection}${progressBlock}`;
+    } catch (err) {
+      console.error('[Dispatch] mission progress block failed:', err);
     }
 
     // Nexus Phase 7c: lead-agent prompt orchestration. Inject Lead awareness
@@ -491,6 +541,12 @@ If you need help or clarification, ask the orchestrator.`;
         message: finalMessage,
         idempotencyKey: `dispatch-${task.id}-${Date.now()}`
       });
+
+      // Phase 13S.4: arm the watchdog so a no-reply (gateway down, LLM out of
+      // quota, invalid model in failover chain) surfaces as a visible error
+      // on the task card instead of leaving it spinning indefinitely.
+      attachChatListener();
+      expectDispatchReply(sessionKey, task.id);
 
       // Only move to in_progress for builder dispatch (task is in 'assigned' status)
       // For tester/reviewer/verifier, the task status is already correct

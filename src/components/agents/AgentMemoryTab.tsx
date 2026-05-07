@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Brain, Trash2, RefreshCw, Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface MemoryRow {
   id: string;
@@ -14,6 +15,7 @@ interface MemoryRow {
 }
 
 export function AgentMemoryTab({ agentId }: { agentId: string }) {
+  const confirmModal = useConfirm();
   const [rows, setRows] = useState<MemoryRow[] | null>(null);
   const [busy, setBusy] = useState<'load' | 'clear' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +39,12 @@ export function AgentMemoryTab({ agentId }: { agentId: string }) {
 
   const clearAll = async () => {
     if (!rows || rows.length === 0) return;
-    if (!confirm(`Clear all ${rows.length} memory summary entries for this agent? This cannot be undone.`)) return;
+    if (!await confirmModal({
+      title: `Clear ${rows.length} memory entries?`,
+      body: 'The agent will lose its session-summary memory and start each new dispatch without prior context.',
+      confirmLabel: 'Clear memory',
+      danger: true,
+    })) return;
     setBusy('clear');
     setError(null);
     try {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { CheckCircle, Circle, Lock, AlertCircle, Loader2, X } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface PlanningOption {
   id: string;
@@ -49,6 +50,7 @@ interface PlanningTabProps {
 }
 
 export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
+  const confirmModal = useConfirm();
   const [state, setState] = useState<PlanningState | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -409,7 +411,12 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
 
   // Cancel planning
   const cancelPlanning = async () => {
-    if (!confirm('Are you sure you want to cancel planning? This will reset the planning state.')) {
+    if (!await confirmModal({
+      title: 'Cancel planning?',
+      body: 'This resets the planning state — answered questions and the locked spec will be cleared.',
+      confirmLabel: 'Cancel planning',
+      danger: true,
+    })) {
       return;
     }
 

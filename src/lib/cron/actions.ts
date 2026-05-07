@@ -94,8 +94,9 @@ async function runMemorySummarize(ctx: ActionContext): Promise<ActionResult> {
 async function runAutoPropose(ctx: ActionContext): Promise<ActionResult> {
   // Fire propose on EVERY in_progress mission. The harvest path (poll route)
   // and the per-mission UI loop pick the proposals up.
+  // Phase 13S.14: skip missions where the operator turned auto-propose off.
   const missions = queryAll<{ id: string }>(
-    `SELECT id FROM convoys WHERE mission_stage = 'in_progress'`
+    `SELECT id FROM convoys WHERE mission_stage = 'in_progress' AND COALESCE(auto_propose_enabled, 1) = 1`
   );
   if (missions.length === 0) return { ok: true, message: 'No in_progress missions; nothing to propose for' };
 

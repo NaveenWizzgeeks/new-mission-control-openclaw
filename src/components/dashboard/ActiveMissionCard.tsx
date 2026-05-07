@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Target, ArrowRight, Sparkles, Users, Plus } from 'lucide-react';
 import { useDataRefresh } from '@/hooks/useDataRefresh';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 import type { Workspace } from '@/lib/types';
 
 interface MissionRow {
@@ -52,16 +53,7 @@ export function ActiveMissionCard() {
 
   useEffect(() => { load(); }, [load]);
   useDataRefresh(['workspaces', 'tasks'], load);
-  // SSE re-emit listens for convoy_progress
-  useEffect(() => {
-    const handler = () => load();
-    window.addEventListener('mc:convoy_progress', handler);
-    window.addEventListener('mc:convoy_completed', handler);
-    return () => {
-      window.removeEventListener('mc:convoy_progress', handler);
-      window.removeEventListener('mc:convoy_completed', handler);
-    };
-  }, [load]);
+  useLiveRefresh(load);
 
   if (active === undefined) {
     return (

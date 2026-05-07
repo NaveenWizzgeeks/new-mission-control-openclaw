@@ -53,6 +53,10 @@ export interface GeneratedSubtaskShape {
   priority?: number;
   dependencies?: number[];
   files_to_modify?: string[];
+  /** Phase 13L Fix 4: Fury can mark a subtask as needing its own planning chat
+   *  before execution. The subtask is created in 'planning' status and waits
+   *  for the user (or the agent) to flip it to 'inbox'. */
+  needs_planning?: boolean;
 }
 
 /**

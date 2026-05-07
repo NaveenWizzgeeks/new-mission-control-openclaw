@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sparkles, Loader2, CheckCircle2, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface PlanningOption {
   id: string;
@@ -38,6 +39,7 @@ function deriveSelection(answer: string | null, options: PlanningOption[] | null
 }
 
 export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced }: ClarificationChatProps) {
+  const confirmModal = useConfirm();
   const router = useRouter();
   const [questions, setQuestions] = useState<PlanningQuestion[] | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
@@ -203,7 +205,12 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
   };
 
   const regenerate = async () => {
-    if (!confirm('Regenerate the question set? Existing answers will be cleared and a fresh planning session will begin.')) return;
+    if (!await confirmModal({
+      title: 'Regenerate planning questions?',
+      body: 'Clears your existing answers and starts a fresh clarification session with new questions.',
+      confirmLabel: 'Regenerate',
+      danger: true,
+    })) return;
     setRegenerating(true);
     setError(null);
     pollAbortRef.current?.abort();
@@ -262,7 +269,7 @@ export function ClarificationChat({ missionId, workspaceSlug, onMissionAdvanced 
       ) : total === 0 ? (
         <div className="text-sm text-mc-text-secondary py-4 text-center">
           {waitingForFury ? (
-            <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Waiting for Fury's first question…</span>
+            <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Waiting for Fury&apos;s first question…</span>
           ) : (
             <>No questions yet. Click <strong>Regenerate</strong> to ask Fury again.</>
           )}

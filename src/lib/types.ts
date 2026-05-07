@@ -80,6 +80,14 @@ export interface Task {
   images?: string; // JSON array of TaskImage objects
   convoy_id?: string;
   is_subtask?: number;
+  /** Phase 13S.18: true when this task is the parent of a convoy (i.e., it
+   * IS a mission, not a worker task). Surfaced from /api/tasks so UI lists
+   * can exclude mission shells from queue/work counters. */
+  is_mission_parent?: boolean;
+  /** ISO timestamp of the most recent `completed` activity, or null if the
+   * agent never logged one. UI uses this to show "Reconciling…" instead of
+   * stuck-task controls when an agent reported done but status hasn't moved. */
+  last_completed_activity_at?: string | null;
   product_id?: string;
   idea_id?: string;
   estimated_cost_usd?: number;
@@ -183,6 +191,11 @@ export interface WorkspaceStats {
     total: number;
   };
   agentCount: number;
+  /** Phase 13N.2: mission counts so the UI can show "N active missions" alongside subtasks. */
+  missionCounts?: {
+    active: number;
+    done: number;
+  };
 }
 
 // Workflow template types
@@ -771,6 +784,10 @@ export interface Convoy {
   planning_started?: boolean;
   proposed_tasks_count?: number;
   active_agents_count?: number;
+  /** Set when the operator reopens a done mission. While non-null, the
+   * self-heal that auto-flips active→done on full counters is suppressed,
+   * so reopen doesn't bounce. Cleared on the next legitimate Mark Done. */
+  reopened_at?: string | null;
   created_at: string;
   updated_at: string;
   // Joined
@@ -879,7 +896,9 @@ export type SSEEventType =
   | 'ab_test_cancelled'
   | 'skill_created'
   | 'skill_promoted'
-  | 'skills_extracted';
+  | 'skills_extracted'
+  | 'mission_stage_changed'
+  | 'webhook_test';
 
 export interface SSEEvent {
   type: SSEEventType;

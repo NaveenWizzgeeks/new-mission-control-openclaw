@@ -43,6 +43,17 @@ export function broadcast(event: SSEEvent): void {
   }
 
   console.log(`[SSE] Broadcast ${event.type} to ${clients.size} client(s)`);
+
+  // Phase 13h: fan out to outbound webhooks. Best-effort, non-blocking; never
+  // crash SSE on webhook errors.
+  void (async () => {
+    try {
+      const { dispatchWebhooks } = await import('./webhooks/dispatcher');
+      dispatchWebhooks(event.type, event.payload);
+    } catch (err) {
+      console.error('[SSE] webhook dispatch failed:', err);
+    }
+  })();
 }
 
 /**

@@ -3,6 +3,8 @@
 import { useState, useCallback } from 'react';
 import { X, Save, Trash2, Activity, Package, Bot, ClipboardList, Plus, Users, ImageIcon, Truck, Radio, MessageSquare, ExternalLink, HardDrive } from 'lucide-react';
 import { useMissionControl } from '@/lib/store';
+import { useConfirm } from '@/components/ConfirmDialog';
+import { ToggleRow } from '@/components/Toggle';
 import { triggerAutoDispatch, shouldTriggerAutoDispatch } from '@/lib/auto-dispatch';
 import { ActivityLog } from './ActivityLog';
 import { DeliverablesList } from './DeliverablesList';
@@ -23,10 +25,14 @@ interface TaskModalProps {
   task?: Task;
   onClose: () => void;
   workspaceId?: string;
+  /** Phase 13O.6: when set on create, the task is added AS A SUBTASK of this
+   *  convoy (mission). Inherits workflow template + triggers auto-drain. */
+  convoyId?: string;
 }
 
-export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
+export function TaskModal({ task, onClose, workspaceId, convoyId }: TaskModalProps) {
   const { agents, addTask, updateTask, addEvent } = useMissionControl();
+  const confirmModal = useConfirm();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [usePlanningMode, setUsePlanningMode] = useState(false);
@@ -83,6 +89,10 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
         assigned_agent_id: form.assigned_agent_id || null,
         due_date: form.due_date || null,
         workspace_id: workspaceId || task?.workspace_id || 'default',
+        // Phase 13O.6: only send convoy_id on CREATE (when there's no existing task).
+        // For edits we leave convoy linkage alone — moving a task between missions
+        // would need a dedicated route.
+        ...(!task && convoyId ? { convoy_id: convoyId } : {}),
       };
 
       const res = await fetch(url, {
@@ -172,7 +182,26 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
   };
 
   const handleDelete = async () => {
-    if (!task || !confirm(`Delete "${task.title}"?`)) return;
+    if (!task) return;
+    // The OpenClaw gateway has no abort RPC for an in-flight turn — once a
+    // Claude session is mid-response we can't stop it. So when the task has
+    // an active agent, we surface that fact in the confirm body instead of
+    // pretending we'll cleanly halt them. Local state (sessions, activities,
+    // history) gets fully removed; the agent's *current* turn finishes at
+    // the gateway and its output is discarded.
+    const ACTIVE_STATUSES: TaskStatus[] = ['assigned', 'in_progress', 'testing', 'verification'];
+    const agentIsActive =
+      !!task.assigned_agent_id && ACTIVE_STATUSES.includes(task.status);
+    const agentName = task.assigned_agent?.name || 'the assigned agent';
+
+    if (!await confirmModal({
+      title: `Delete "${task.title}"?`,
+      body: agentIsActive
+        ? `${agentName} is currently working on this task. The OpenClaw gateway can't interrupt an in-flight turn, so ${agentName}'s current response will finish at the gateway (and be discarded). No further dispatches will happen, and the task plus all sessions and history will be removed. Continue?`
+        : 'The task and its history will be removed. This cannot be undone.',
+      confirmLabel: agentIsActive ? 'Delete & stop agent' : 'Delete',
+      danger: true,
+    })) return;
 
     setIsDeleting(true);
     setDeleteError(null);
@@ -286,27 +315,14 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
 
           {/* Planning Mode Toggle - only for new tasks */}
           {!task && (
-            <div className="p-3 bg-mc-bg rounded-lg border border-mc-border">
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={usePlanningMode}
-                  onChange={(e) => setUsePlanningMode(e.target.checked)}
-                  className="w-4 h-4 mt-0.5 rounded border-mc-border"
-                />
-                <div>
-                  <span className="font-medium text-sm flex items-center gap-2">
-                    <ClipboardList className="w-4 h-4 text-mc-accent" />
-                    Enable Planning Mode
-                  </span>
-                  <p className="text-xs text-mc-text-secondary mt-1">
-                    Best for complex projects that need detailed requirements. 
-                    You&apos;ll answer a few questions to define scope, goals, and constraints 
-                    before work begins. Skip this for quick, straightforward tasks.
-                  </p>
-                </div>
-              </label>
-            </div>
+            <ToggleRow
+              icon={<ClipboardList className="w-4 h-4" />}
+              iconAccent="text-mc-accent"
+              label="Enable Planning Mode"
+              description="Best for complex projects that need detailed requirements. You'll answer a few questions to define scope, goals, and constraints before work begins. Skip this for quick, straightforward tasks."
+              checked={usePlanningMode}
+              onChange={setUsePlanningMode}
+            />
           )}
 
           {/* Assigned Agent */}

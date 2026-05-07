@@ -108,6 +108,19 @@ export async function triggerProposal(missionId: string): Promise<{ sessionKey: 
   const ctx = getMissionAndCompletedSubtasks(missionId);
   if (!ctx) throw new Error(`Mission ${missionId} not found`);
 
+  // Phase 13S.14: respect the per-mission auto-propose toggle.
+  // Also short-circuit when the mission is already 'done' or 'paused' — the
+  // post-last-subtask hook in tasks/[id]/route.ts can race with a manual
+  // Mark Done and would otherwise burn a Fury turn proposing follow-up work
+  // for a mission the operator has explicitly closed.
+  const flag = getDb().prepare(`SELECT auto_propose_enabled, mission_stage FROM convoys WHERE id = ?`).get(missionId) as { auto_propose_enabled?: number; mission_stage?: string } | undefined;
+  if (flag && flag.auto_propose_enabled === 0) {
+    return { sessionKey: '', sent: false };
+  }
+  if (flag && (flag.mission_stage === 'done' || flag.mission_stage === 'paused')) {
+    return { sessionKey: '', sent: false };
+  }
+
   const sessionKey = getMissionPlanningSessionKey(missionId);
   const message = buildProposalPrompt(ctx.parent, ctx.completed);
 
@@ -127,6 +140,131 @@ export interface HarvestResult {
   inserted: number;
   total_proposed: number;
   proposed_tasks: Array<{ id: string; title: string; agent_role: string | null }>;
+}
+
+/**
+ * Insert a list of subtask specs as `planner_proposed` rows on the given
+ * mission. Dedupes by title against existing subtasks (any status), so it's
+ * safe to call repeatedly. Resolves an agent for each spec via the same
+ * workspace-first-then-global rules harvestProposals uses.
+ *
+ * Extracted so harvestProposals (auto-propose) and the Ask Fury chat
+ * approval flow share the exact insert path — keeps proposed_tasks_count
+ * recompute, broadcasts, and dedupe semantics identical across entry points.
+ */
+export function insertProposedSubtasks(
+  missionId: string,
+  specs: GeneratedSubtaskShape[],
+): HarvestResult {
+  if (specs.length === 0) {
+    const totalNow = (getDb().prepare(`
+      SELECT COUNT(*) as n FROM convoy_subtasks cs
+      JOIN tasks t ON cs.task_id = t.id
+      WHERE cs.convoy_id = ? AND t.status = 'planner_proposed' AND t.rejected_at IS NULL
+    `).get(missionId) as { n: number }).n;
+    return { inserted: 0, total_proposed: totalNow, proposed_tasks: [] };
+  }
+
+  const ctx = getMissionAndCompletedSubtasks(missionId);
+  if (!ctx) throw new Error(`Mission ${missionId} not found`);
+
+  const db = getDb();
+  const existing = db.prepare(`
+    SELECT t.title FROM convoy_subtasks cs JOIN tasks t ON cs.task_id = t.id WHERE cs.convoy_id = ?
+  `).all(missionId) as { title: string }[];
+  const seen = new Set(existing.map(e => e.title.trim().toLowerCase()));
+
+  const inserted: HarvestResult['proposed_tasks'] = [];
+
+  const resolveAgent = (role: string | undefined, workspaceId: string): string | null => {
+    if (!role) return null;
+    const ws = db.prepare(`
+      SELECT id FROM agents
+      WHERE LOWER(role) = LOWER(?) AND workspace_id = ? AND status != 'offline'
+      ORDER BY is_master DESC, created_at ASC LIMIT 1
+    `).get(role, workspaceId) as { id: string } | undefined;
+    if (ws) return ws.id;
+    const g = db.prepare(`
+      SELECT id FROM agents
+      WHERE LOWER(role) = LOWER(?) AND is_global = 1 AND status != 'offline'
+      ORDER BY is_master DESC, created_at ASC LIMIT 1
+    `).get(role) as { id: string } | undefined;
+    return g?.id ?? null;
+  };
+
+  const tx = db.transaction(() => {
+    const insertTask = db.prepare(`
+      INSERT INTO tasks (
+        id, title, description, status, priority, assigned_agent_id, workspace_id, business_id,
+        workflow_template_id, convoy_id, is_subtask, created_at, updated_at
+      ) VALUES (?, ?, ?, 'planner_proposed', ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    `);
+    const insertJunction = db.prepare(`
+      INSERT INTO convoy_subtasks (id, convoy_id, task_id, sort_order, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const maxOrderRow = db.prepare(`SELECT MAX(sort_order) as max FROM convoy_subtasks WHERE convoy_id = ?`).get(missionId) as { max: number | null };
+    let nextOrder = (maxOrderRow?.max ?? 0) + 1;
+
+    for (const s of specs) {
+      if (!s || typeof s.title !== 'string') continue;
+      const title = s.title.trim().slice(0, 500);
+      if (!title) continue;
+      const key = title.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const taskId = uuidv4();
+      const csId = uuidv4();
+      const now = new Date().toISOString();
+      const agentId = resolveAgent(s.agent_role, ctx.parent.workspace_id);
+      const desc = (s.description || '').trim().slice(0, 10_000);
+
+      insertTask.run(
+        taskId,
+        title,
+        desc || null,
+        ctx.parent.priority,
+        agentId,
+        ctx.parent.workspace_id,
+        (ctx.parent as Task & { business_id?: string }).business_id ?? 'default',
+        (ctx.parent as Task & { workflow_template_id?: string | null }).workflow_template_id ?? null,
+        missionId,
+        now,
+        now,
+      );
+      insertJunction.run(csId, missionId, taskId, nextOrder, now);
+      nextOrder += 1;
+      inserted.push({ id: taskId, title, agent_role: s.agent_role ?? null });
+    }
+
+    if (inserted.length > 0) {
+      db.prepare(`
+        UPDATE convoys
+        SET proposed_tasks_count = (
+          SELECT COUNT(*) FROM convoy_subtasks cs
+          JOIN tasks t ON cs.task_id = t.id
+          WHERE cs.convoy_id = ? AND t.status = 'planner_proposed' AND t.rejected_at IS NULL
+        ),
+        updated_at = ?
+        WHERE id = ?
+      `).run(missionId, new Date().toISOString(), missionId);
+    }
+  });
+  tx();
+
+  const totalProposed = (db.prepare(`
+    SELECT COUNT(*) as n FROM convoy_subtasks cs
+    JOIN tasks t ON cs.task_id = t.id
+    WHERE cs.convoy_id = ? AND t.status = 'planner_proposed' AND t.rejected_at IS NULL
+  `).get(missionId) as { n: number }).n;
+
+  if (inserted.length > 0) {
+    const updated = db.prepare(`SELECT * FROM convoys WHERE id = ?`).get(missionId) as Convoy | undefined;
+    if (updated) broadcast({ type: 'convoy_progress', payload: updated });
+  }
+
+  return { inserted: inserted.length, total_proposed: totalProposed, proposed_tasks: inserted };
 }
 
 /**
@@ -160,116 +298,8 @@ export async function harvestProposals(missionId: string): Promise<HarvestResult
     }
   }
 
-  if (specs.length === 0) {
-    return { inserted: 0, total_proposed: 0, proposed_tasks: [] };
-  }
-
-  const db = getDb();
-  // Existing subtask titles for dedupe (any status — initial subtasks live
-  // here too so we don't re-propose them).
-  const existing = db.prepare(`
-    SELECT t.title FROM convoy_subtasks cs JOIN tasks t ON cs.task_id = t.id WHERE cs.convoy_id = ?
-  `).all(missionId) as { title: string }[];
-  const seen = new Set(existing.map(e => e.title.trim().toLowerCase()));
-
-  const inserted: HarvestResult['proposed_tasks'] = [];
-
-  // Resolve role → agent for assignments (workspace-first, then global)
-  const resolveAgent = (role: string | undefined, workspaceId: string): string | null => {
-    if (!role) return null;
-    const ws = db.prepare(`
-      SELECT id FROM agents
-      WHERE LOWER(role) = LOWER(?) AND workspace_id = ? AND status != 'offline'
-      ORDER BY is_master DESC, created_at ASC LIMIT 1
-    `).get(role, workspaceId) as { id: string } | undefined;
-    if (ws) return ws.id;
-    const g = db.prepare(`
-      SELECT id FROM agents
-      WHERE LOWER(role) = LOWER(?) AND is_global = 1 AND status != 'offline'
-      ORDER BY is_master DESC, created_at ASC LIMIT 1
-    `).get(role) as { id: string } | undefined;
-    return g?.id ?? null;
-  };
-
-  const tx = db.transaction(() => {
-    const insertTask = db.prepare(`
-      INSERT INTO tasks (
-        id, title, description, status, priority, assigned_agent_id, workspace_id, business_id,
-        workflow_template_id, convoy_id, is_subtask, created_at, updated_at
-      ) VALUES (?, ?, ?, 'planner_proposed', ?, ?, ?, ?, ?, ?, 1, ?, ?)
-    `);
-    const insertJunction = db.prepare(`
-      INSERT INTO convoy_subtasks (id, convoy_id, task_id, sort_order, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-
-    // Find current max sort_order so proposals append cleanly
-    const maxOrderRow = db.prepare(`SELECT MAX(sort_order) as max FROM convoy_subtasks WHERE convoy_id = ?`).get(missionId) as { max: number | null };
-    let nextOrder = (maxOrderRow?.max ?? 0) + 1;
-
-    for (const spec of specs) {
-      for (const s of spec) {
-        if (!s || typeof s.title !== 'string') continue;
-        const title = s.title.trim().slice(0, 500);
-        if (!title) continue;
-        const key = title.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-
-        const taskId = uuidv4();
-        const csId = uuidv4();
-        const now = new Date().toISOString();
-        const agentId = resolveAgent(s.agent_role, ctx.parent.workspace_id);
-        const desc = (s.description || '').trim().slice(0, 10_000);
-
-        insertTask.run(
-          taskId,
-          title,
-          desc || null,
-          ctx.parent.priority,
-          agentId,
-          ctx.parent.workspace_id,
-          (ctx.parent as Task & { business_id?: string }).business_id ?? 'default',
-          (ctx.parent as Task & { workflow_template_id?: string | null }).workflow_template_id ?? null,
-          missionId,
-          now,
-          now
-        );
-        insertJunction.run(csId, missionId, taskId, nextOrder, now);
-        nextOrder += 1;
-        inserted.push({ id: taskId, title, agent_role: s.agent_role ?? null });
-      }
-    }
-
-    if (inserted.length > 0) {
-      db.prepare(`
-        UPDATE convoys
-        SET proposed_tasks_count = (
-          SELECT COUNT(*) FROM convoy_subtasks cs
-          JOIN tasks t ON cs.task_id = t.id
-          WHERE cs.convoy_id = ? AND t.status = 'planner_proposed'
-        ),
-        updated_at = ?
-        WHERE id = ?
-      `).run(missionId, new Date().toISOString(), missionId);
-    }
-  });
-  tx();
-
-  // Total proposed count after insert
-  const totalProposed = (db.prepare(`
-    SELECT COUNT(*) as n FROM convoy_subtasks cs
-    JOIN tasks t ON cs.task_id = t.id
-    WHERE cs.convoy_id = ? AND t.status = 'planner_proposed'
-  `).get(missionId) as { n: number }).n;
-
-  if (inserted.length > 0) {
-    // Re-broadcast the convoy state so subscribed UI re-fetches the mission.
-    const updated = db.prepare(`SELECT * FROM convoys WHERE id = ?`).get(missionId) as Convoy | undefined;
-    if (updated) {
-      broadcast({ type: 'convoy_progress', payload: updated });
-    }
-  }
-
-  return { inserted: inserted.length, total_proposed: totalProposed, proposed_tasks: inserted };
+  // Flatten all spec batches into a single list — insertProposedSubtasks
+  // dedupes by title against existing rows, so concatenation is safe.
+  const flat = specs.flat();
+  return insertProposedSubtasks(missionId, flat);
 }

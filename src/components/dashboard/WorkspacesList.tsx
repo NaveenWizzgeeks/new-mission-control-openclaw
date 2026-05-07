@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import type { WorkspaceStats } from '@/lib/types';
 import { useDataRefresh } from '@/hooks/useDataRefresh';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 const ACTIVE_KEYS = ['planning', 'inbox', 'assigned', 'in_progress', 'convoy_active', 'testing', 'review', 'verification'] as const;
 
@@ -20,6 +21,7 @@ export function WorkspacesList() {
 
   useEffect(() => { load(); }, [load]);
   useDataRefresh(['workspaces'], load);
+  useLiveRefresh(load);
 
   return (
     <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5 flex flex-col h-[26rem]">

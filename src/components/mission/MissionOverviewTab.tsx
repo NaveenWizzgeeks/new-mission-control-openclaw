@@ -14,6 +14,7 @@ import {
   Pause,
   Loader2,
   CheckCircle2,
+  RotateCcw,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { MissionStage, Task } from '@/lib/types';
@@ -39,6 +40,7 @@ export interface MissionDetail {
   active_agents_count: number;
   awaiting_input_count: number;
   active_agent_count: number;
+  auto_propose_enabled?: boolean;
   created_at: string;
   updated_at: string;
   parent_task: Task & { description?: string | null };
@@ -117,6 +119,25 @@ export function MissionOverviewTab({ mission, workspaceSlug, onStageChange, onMi
   const showPause = mission.mission_stage === 'in_progress';
   const showResume = mission.mission_stage === 'paused';
   const showMarkDone = mission.mission_stage === 'in_progress' || mission.mission_stage === 'testing';
+  const showReopen = mission.mission_stage === 'done';
+
+  const reopen = async () => {
+    setBusy('reopen');
+    setError(null);
+    try {
+      const res = await fetch(`/api/missions/${mission.id}/reopen`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || `Reopen failed (${res.status})`);
+        return;
+      }
+      onStageChange?.('in_progress');
+      onMissionUpdated?.();
+      router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -166,6 +187,11 @@ export function MissionOverviewTab({ mission, workspaceSlug, onStageChange, onMi
               Mark Done
             </ActionButton>
           )}
+          {showReopen && (
+            <ActionButton onClick={reopen} busy={busy === 'reopen'} primary icon={<RotateCcw className="w-3.5 h-3.5" />}>
+              Reopen mission
+            </ActionButton>
+          )}
         </div>
 
         {error && (
@@ -208,6 +234,11 @@ export function MissionOverviewTab({ mission, workspaceSlug, onStageChange, onMi
       <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5">
         <h3 className="text-sm font-semibold uppercase tracking-wider text-mc-text-secondary mb-3">Configuration</h3>
         <div className="space-y-3">
+          <AutoProposeToggle
+            missionId={mission.id}
+            initial={mission.auto_propose_enabled !== false}
+            onSaved={onMissionUpdated}
+          />
           <ConfigRow
             icon={<Sparkles className="w-4 h-4 text-mc-accent" />}
             label="Pipeline"
@@ -299,6 +330,83 @@ function ConfigRow({
         <p className={`text-sm text-mc-text ${mono ? 'font-mono' : ''} ${multiline ? 'whitespace-pre-wrap' : 'truncate'}`}>
           {value}
         </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Per-mission auto-propose toggle. Posts to /api/missions/[id] which already
+ * accepts auto_propose_enabled — no new endpoint needed. When OFF, the
+ * post-last-subtask hook in tasks/[id]/route.ts and the auto_propose cron
+ * both skip this mission, so Fury stops generating follow-ups.
+ */
+function AutoProposeToggle({
+  missionId,
+  initial,
+  onSaved,
+}: {
+  missionId: string;
+  initial: boolean;
+  onSaved?: () => void;
+}) {
+  const [enabled, setEnabled] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const flip = async () => {
+    const next = !enabled;
+    setEnabled(next); // optimistic
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/missions/${missionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_propose_enabled: next }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || `Save failed (${res.status})`);
+        setEnabled(!next); // rollback
+      } else {
+        onSaved?.();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error');
+      setEnabled(!next);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex items-start gap-3 py-1.5">
+      <Sparkles className="w-4 h-4 text-mc-accent-purple mt-0.5 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs uppercase tracking-wider font-medium text-mc-text-secondary">Auto-propose</span>
+          <button
+            onClick={flip}
+            disabled={saving}
+            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+              enabled ? 'bg-mc-accent' : 'bg-mc-bg-tertiary border border-mc-border'
+            }`}
+            aria-pressed={enabled}
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+                enabled ? 'translate-x-[18px]' : 'translate-x-[2px]'
+              }`}
+            />
+          </button>
+        </div>
+        <p className="text-xs text-mc-text-secondary mt-1">
+          {enabled
+            ? 'Fury proposes follow-up subtasks each time the last open task hits done.'
+            : 'No automatic follow-ups. The mission ends when the current subtasks complete.'}
+        </p>
+        {error && <p className="text-xs text-mc-accent-red mt-1">{error}</p>}
       </div>
     </div>
   );

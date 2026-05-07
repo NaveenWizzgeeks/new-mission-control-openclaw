@@ -79,6 +79,23 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Phase 13f: scan inbound text for prompt-injection / leaked secrets.
+    // Best-effort — never block the send on scan failure.
+    try {
+      const { scanInbound } = await import('@/lib/security/scanner');
+      const { recordFindings } = await import('@/lib/security/store');
+      const findings = scanInbound(body.message);
+      if (findings.length > 0) {
+        recordFindings(findings, {
+          agentId: body.agentId,
+          sessionId: sessionKey,
+          source: 'chat_inbound',
+        });
+      }
+    } catch (err) {
+      console.error('[Chat send] inbound security scan failed:', err);
+    }
+
     const client = getOpenClawClient();
     if (!client.isConnected()) await client.connect();
 
@@ -87,8 +104,12 @@ export async function POST(request: NextRequest) {
       message: assembled,
       idempotencyKey: `user-chat-${sessionKey}-${Date.now()}`,
     };
-    // Model override (gateway honours x-openclaw-model in the params if supported)
-    if (body.model && body.model.trim()) params.model = body.model.trim();
+    // NOTE: this gateway version REJECTS `model` as a top-level chat.send
+    // param ("invalid chat.send params: at root: unexpected property 'model'").
+    // Per-message model override is therefore not supported here; the agent
+    // uses its session-default model. The /chat UI may pass `model` but we
+    // intentionally drop it on the floor instead of breaking the send.
+    // If future gateway versions accept it, re-add via params.model.
 
     await client.call('chat.send', params);
 

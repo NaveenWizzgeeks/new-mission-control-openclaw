@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Zap, Settings, ChevronLeft, LayoutGrid, Rocket } from 'lucide-react';
+import { Zap, Settings, ChevronLeft, LayoutGrid, Rocket, ChevronDown, Check } from 'lucide-react';
 import { useMissionControl } from '@/lib/store';
 import { format } from 'date-fns';
 import type { Workspace } from '@/lib/types';
@@ -42,11 +42,96 @@ export function Header({ workspace, isPortrait = true }: HeaderProps) {
     return () => clearInterval(interval);
   }, []);
 
-  const workingAgents = agents.filter((a) => a.status === 'working').length;
+  // Phase 13S.17: Header shows the *current scope* — when a workspace is
+  // open, agent + task counts must be filtered to that workspace, not the
+  // global store. Otherwise a workspace with 3 tasks appears as 4 because
+  // tasks from sibling workspaces leak in.
+  const scopedAgents = workspace ? agents.filter(a => a.workspace_id === workspace.id) : agents;
+  const scopedTasks = workspace ? tasks.filter(t => t.workspace_id === workspace.id) : tasks;
+  const workingAgents = scopedAgents.filter((a) => a.status === 'working').length;
   const activeAgents = workingAgents + activeSubAgents;
-  const tasksInQueue = tasks.filter((t) => t.status !== 'done' && t.status !== 'review').length;
+  // Phase 13S.6 + 13S.16 + 13S.18: rejected, proposed, and mission-parent
+  // tasks are not "real" queued work. Mission parents are the missions
+  // themselves in the UI, not subtasks an agent should pick up.
+  const tasksInQueue = scopedTasks.filter((t) => {
+    if (t.status === 'done' || t.status === 'review') return false;
+    if (t.status === 'planner_proposed') return false;
+    if ((t as typeof t & { rejected_at?: string | null }).rejected_at) return false;
+    if ((t as typeof t & { is_mission_parent?: boolean }).is_mission_parent) return false;
+    return true;
+  }).length;
 
   const portraitWorkspaceHeader = !!workspace && isPortrait;
+
+  // Phase 13S.11: workspace breadcrumb is a dropdown listing the other
+  // workspaces so the user can hop without going back to the dashboard.
+  const [wsListOpen, setWsListOpen] = useState(false);
+  const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>([]);
+  const wsMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!workspace) return;
+    let cancelled = false;
+    fetch('/api/workspaces').then(r => r.ok ? r.json() : []).then((arr: Workspace[]) => {
+      if (!cancelled && Array.isArray(arr)) setAllWorkspaces(arr);
+    }).catch(() => { /* best-effort */ });
+    return () => { cancelled = true; };
+  }, [workspace]);
+  useEffect(() => {
+    if (!wsListOpen) return;
+    const onClickAway = (e: MouseEvent) => {
+      if (wsMenuRef.current && !wsMenuRef.current.contains(e.target as Node)) setWsListOpen(false);
+    };
+    document.addEventListener('mousedown', onClickAway);
+    return () => document.removeEventListener('mousedown', onClickAway);
+  }, [wsListOpen]);
+
+  const renderWorkspaceBadge = (size: 'sm' | 'md') => (
+    <div ref={wsMenuRef} className="relative min-w-0">
+      <button
+        type="button"
+        onClick={() => setWsListOpen(o => !o)}
+        className={`flex items-center gap-2 ${size === 'sm' ? 'px-2.5 py-1.5' : 'px-2 md:px-3 py-1'} bg-mc-bg-tertiary rounded min-w-0 hover:bg-mc-bg-tertiary/70 transition-colors`}
+        title="Switch workspace"
+      >
+        <span className={size === 'sm' ? 'text-base' : 'text-base md:text-lg'}>{workspace!.icon}</span>
+        <span className={`font-medium truncate ${size === 'sm' ? 'text-sm' : 'text-sm md:text-base'}`}>{workspace!.name}</span>
+        <ChevronDown className={`w-3.5 h-3.5 text-mc-text-secondary shrink-0 transition-transform ${wsListOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {wsListOpen && (
+        <div className="absolute top-full left-0 mt-1 w-64 max-h-80 overflow-y-auto bg-mc-bg-secondary border border-mc-border rounded-lg shadow-xl z-50 py-1">
+          {allWorkspaces.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-mc-text-secondary">No other workspaces</div>
+          ) : (
+            allWorkspaces.map(ws => {
+              const current = ws.id === workspace!.id;
+              return (
+                <Link
+                  key={ws.id}
+                  href={`/workspace/${ws.slug}`}
+                  onClick={() => setWsListOpen(false)}
+                  className={`flex items-center gap-2 px-3 py-2 text-sm hover:bg-mc-bg-tertiary ${current ? 'text-mc-accent' : 'text-mc-text'}`}
+                >
+                  <span className="text-base">{ws.icon}</span>
+                  <span className="truncate flex-1">{ws.name}</span>
+                  {current && <Check className="w-3.5 h-3.5 shrink-0" />}
+                </Link>
+              );
+            })
+          )}
+          <div className="border-t border-mc-border mt-1 pt-1">
+            <Link
+              href="/"
+              onClick={() => setWsListOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-xs text-mc-text-secondary hover:bg-mc-bg-tertiary hover:text-mc-accent"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              All workspaces
+            </Link>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <header
@@ -67,18 +152,17 @@ export function Header({ workspace, isPortrait = true }: HeaderProps) {
                 <LayoutGrid className="w-3.5 h-3.5" />
                 <span className="hidden xs:inline">Dashboard</span>
               </Link>
-              <div className="flex items-center gap-2 px-2.5 py-1.5 bg-mc-bg-tertiary rounded min-w-0">
-                <span className="text-base">{workspace.icon}</span>
-                <span className="font-medium truncate text-sm">{workspace.name}</span>
-              </div>
+              {renderWorkspaceBadge('sm')}
             </div>
 
-            <Link href="/autopilot" className="min-h-11 min-w-11 p-2 hover:bg-mc-bg-tertiary rounded text-mc-text-secondary" title="Autopilot">
-              <Rocket className="w-5 h-5" />
-            </Link>
-            <button onClick={() => router.push('/settings')} className="min-h-11 min-w-11 p-2 hover:bg-mc-bg-tertiary rounded text-mc-text-secondary shrink-0" title="Settings">
-              <Settings className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+              <Link href="/autopilot" className="min-h-11 min-w-11 p-2 hover:bg-mc-bg-tertiary rounded text-mc-text-secondary flex items-center justify-center" title="Autopilot">
+                <Rocket className="w-5 h-5" />
+              </Link>
+              <button onClick={() => router.push('/settings')} className="min-h-11 min-w-11 p-2 hover:bg-mc-bg-tertiary rounded text-mc-text-secondary flex items-center justify-center" title="Settings">
+                <Settings className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 min-w-0">
@@ -125,10 +209,7 @@ export function Header({ workspace, isPortrait = true }: HeaderProps) {
                   <span>Dashboard</span>
                 </Link>
                 <span className="hidden sm:block text-mc-text-secondary">/</span>
-                <div className="flex items-center gap-2 px-2 md:px-3 py-1 bg-mc-bg-tertiary rounded min-w-0">
-                  <span className="text-base md:text-lg">{workspace.icon}</span>
-                  <span className="font-medium truncate text-sm md:text-base">{workspace.name}</span>
-                </div>
+                {renderWorkspaceBadge('md')}
               </div>
             ) : (
               <Link href="/" className="flex items-center gap-2 px-3 py-1 bg-mc-bg-tertiary rounded hover:bg-mc-bg transition-colors">

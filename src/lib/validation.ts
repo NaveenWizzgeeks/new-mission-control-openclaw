@@ -53,6 +53,7 @@ export const CreateMissionSchema = z.object({
   priority: TaskPriority.optional(),
   enable_pipeline: z.boolean().default(true),
   enable_existing_codebase: z.boolean().default(false),
+  auto_propose_enabled: z.boolean().default(true),
   codebase_path: z.string().max(2000).optional().nullable(),
   git_branch: z.string().max(255).optional().nullable(),
   tech_stack_hint: z.string().max(1000).optional().nullable(),
@@ -64,6 +65,7 @@ export const UpdateMissionSchema = z.object({
   description: z.string().max(20_000).optional(),
   enable_pipeline: z.boolean().optional(),
   enable_existing_codebase: z.boolean().optional(),
+  auto_propose_enabled: z.boolean().optional(),
   codebase_path: z.string().max(2000).nullable().optional(),
   git_branch: z.string().max(255).nullable().optional(),
   tech_stack_hint: z.string().max(1000).nullable().optional(),
@@ -86,6 +88,11 @@ export const CreateTaskSchema = z.object({
   business_id: z.string().optional(),
   workspace_id: z.string().optional(),
   due_date: z.string().optional().nullable(),
+  /** When set, the new task is created AS A SUBTASK of this convoy via addSubtasks
+   *  (inherits workflow template, gets convoy_subtasks linkage, triggers auto-drain). */
+  convoy_id: z.string().optional().nullable(),
+  /** Phase 13L Fix 4: subtasks can ship in 'planning' status to gate dispatch. */
+  requires_planning: z.boolean().optional(),
 });
 
 export const UpdateTaskSchema = z.object({

@@ -11,8 +11,16 @@ export async function GET(request: NextRequest) {
     
     let agents: Agent[];
     if (workspaceId) {
+      // Gateway-imported agents (Fury, Jarvis, etc.) live as a single row in
+      // the workspace they were imported into but conceptually belong to every
+      // workspace — they're external agents tied to the OpenClaw Gateway, not
+      // to a workspace. Surface them everywhere so missions in any workspace
+      // can use them without re-importing. Locally-created agents stay scoped
+      // to their workspace.
       agents = queryAll<Agent>(`
-        SELECT * FROM agents WHERE workspace_id = ? ORDER BY is_master DESC, name ASC
+        SELECT * FROM agents
+        WHERE workspace_id = ? OR source = 'gateway'
+        ORDER BY is_master DESC, name ASC
       `, [workspaceId]);
     } else {
       agents = queryAll<Agent>(`

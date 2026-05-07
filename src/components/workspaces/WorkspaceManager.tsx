@@ -76,10 +76,18 @@ export function WorkspaceManager({ rows, onChanged }: WorkspaceManagerProps) {
                       <Users className="w-3.5 h-3.5" />
                       {ws.agentCount} agent{ws.agentCount === 1 ? '' : 's'}
                     </span>
-                    <span className="flex items-center gap-1.5">
+                    <span className="flex items-center gap-1.5" title="Subtasks across active missions only">
                       <CheckSquare className="w-3.5 h-3.5" />
-                      {ws.taskCounts.total} task{ws.taskCounts.total === 1 ? '' : 's'}
+                      {ws.taskCounts.total} active task{ws.taskCounts.total === 1 ? '' : 's'}
                     </span>
+                    {ws.missionCounts && (
+                      <span className="flex items-center gap-1.5" title="Active missions (excluding done/archived)">
+                        🎯 {ws.missionCounts.active} mission{ws.missionCounts.active === 1 ? '' : 's'}
+                        {ws.missionCounts.done > 0 && (
+                          <span className="opacity-60 text-[10px]">· {ws.missionCounts.done} done</span>
+                        )}
+                      </span>
+                    )}
                   </div>
                 </div>
               </Link>

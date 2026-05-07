@@ -48,8 +48,16 @@ export default function ChatPage() {
   const [missionContext, setMissionContext] = useState<string | null>(null);
   const [bannerNote, setBannerNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sessionSearch, setSessionSearch] = useState('');
 
   const activeAgent = useMemo(() => agents.find(a => a.id === activeAgentId) ?? null, [agents, activeAgentId]);
+
+  // Phase 13M.4: persist last-active agent so /chat opens to your previous selection.
+  useEffect(() => {
+    if (activeAgentId) {
+      try { window.localStorage.setItem('mc-chat-active-agent', activeAgentId); } catch { /* ignore */ }
+    }
+  }, [activeAgentId]);
 
   // Initial load: agents, models
   useEffect(() => {
@@ -62,9 +70,14 @@ export default function ChatPage() {
         if (aRes.ok) {
           const list: AgentRow[] = await aRes.json();
           setAgents(list);
-          // Default to lead agent or first
-          const lead = list.find(a => a.is_lead);
-          setActiveAgentId(lead?.id ?? list[0]?.id ?? null);
+          // Phase 13M.4: prefer last-active from localStorage; else lead; else first.
+          let preferred: AgentRow | undefined;
+          try {
+            const stored = window.localStorage.getItem('mc-chat-active-agent');
+            if (stored) preferred = list.find(a => a.id === stored);
+          } catch { /* ignore */ }
+          if (!preferred) preferred = list.find(a => a.is_lead);
+          setActiveAgentId((preferred ?? list[0])?.id ?? null);
         }
         if (mRes.ok) {
           const m: ModelsResponse = await mRes.json();
@@ -144,13 +157,9 @@ export default function ChatPage() {
       setBannerNote(`Switched to ${next.name}.`);
       return;
     }
-    if (cmd.kind === 'model') {
-      const target = (cmd.arg ?? '').trim();
-      if (!target) throw new Error('Provide a model id (e.g. claude-cli/claude-opus-4-7)');
-      setActiveModel(target);
-      setBannerNote(`Model set to ${target} for upcoming sends.`);
-      return;
-    }
+    // /model removed in Phase 13M.3: this gateway version rejects model
+    // overrides on chat.send. Model selection happens at session creation
+    // via the agent's session_key_prefix instead.
     if (cmd.kind === 'task') {
       if (!activeAgentId) throw new Error('No active agent');
       const title = (cmd.arg ?? '').replace(/^"|"$/g, '').trim();
@@ -213,7 +222,9 @@ export default function ChatPage() {
       {/* Left: sessions list */}
       <aside className="w-64 shrink-0 flex flex-col border-r border-mc-border bg-mc-bg-secondary/40">
         <div className="px-3 py-3 border-b border-mc-border flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-mc-text-secondary">Sessions</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-mc-text-secondary">
+            Sessions {sessions.length > 0 && <span className="opacity-60">({sessions.length})</span>}
+          </h2>
           <button
             onClick={newSession}
             disabled={busy || !activeAgentId}
@@ -223,34 +234,58 @@ export default function ChatPage() {
             New
           </button>
         </div>
+
+        {/* Phase 13M.4: search filter */}
+        {sessions.length > 3 && (
+          <div className="px-3 py-2 border-b border-mc-border">
+            <input
+              type="text"
+              value={sessionSearch}
+              onChange={e => setSessionSearch(e.target.value)}
+              placeholder="Filter…"
+              className="w-full text-xs bg-mc-bg border border-mc-border rounded px-2 py-1.5 focus:outline-none focus:border-mc-accent"
+            />
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto py-2">
           {sessions.length === 0 ? (
             <p className="text-xs text-mc-text-secondary text-center py-6 px-4">
               No chat sessions yet. Pick an agent and click <strong className="text-mc-text">New</strong>.
             </p>
-          ) : (
-            <ul className="px-2 space-y-0.5">
-              {sessions.map(s => {
-                const active = s.key === activeSessionKey;
-                const agentName = parseAgentFromKey(s.key);
-                const updated = s.updatedAt ? new Date(Number(s.updatedAt)) : null;
-                return (
-                  <li key={s.key}>
-                    <button
-                      onClick={() => setActiveSessionKey(s.key)}
-                      className={`w-full text-left px-2 py-2 rounded text-xs ${active ? 'bg-mc-accent/15 text-mc-accent' : 'text-mc-text-secondary hover:bg-mc-bg-tertiary hover:text-mc-text'}`}
-                    >
-                      <div className="font-medium capitalize truncate">{agentName || s.key}</div>
-                      <div className="flex items-center gap-2 text-[10px] mt-0.5 opacity-80">
-                        {s.model && <span className="font-mono truncate">{shortModel(s.model)}</span>}
-                        {updated && <span className="ml-auto whitespace-nowrap">{updated.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</span>}
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          ) : (() => {
+            const q = sessionSearch.toLowerCase();
+            const filtered = q
+              ? sessions.filter(s => s.key.toLowerCase().includes(q) || (parseAgentFromKey(s.key) ?? '').toLowerCase().includes(q))
+              : sessions;
+            if (filtered.length === 0) {
+              return <p className="text-xs text-mc-text-secondary text-center py-6 px-4">No sessions match &quot;{sessionSearch}&quot;.</p>;
+            }
+            return (
+              <ul className="px-2 space-y-0.5">
+                {filtered.map(s => {
+                  const active = s.key === activeSessionKey;
+                  const agentName = parseAgentFromKey(s.key);
+                  const updated = s.updatedAt ? new Date(Number(s.updatedAt)) : null;
+                  return (
+                    <li key={s.key}>
+                      <button
+                        onClick={() => setActiveSessionKey(s.key)}
+                        title={s.key}
+                        className={`w-full text-left px-2 py-2 rounded text-xs ${active ? 'bg-mc-accent/15 text-mc-accent' : 'text-mc-text-secondary hover:bg-mc-bg-tertiary hover:text-mc-text'}`}
+                      >
+                        <div className="font-medium capitalize truncate">{agentName || s.key}</div>
+                        <div className="flex items-center gap-2 text-[10px] mt-0.5 opacity-80">
+                          {s.model && <span className="font-mono truncate">{shortModel(s.model)}</span>}
+                          {updated && <span className="ml-auto whitespace-nowrap">{updated.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</span>}
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            );
+          })()}
         </div>
       </aside>
 

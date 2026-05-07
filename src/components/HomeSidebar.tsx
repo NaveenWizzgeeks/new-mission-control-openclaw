@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Rocket, Activity, ChevronLeft, ChevronRight, Briefcase, Bot, BarChart3, Clock, MessageSquare, Home } from 'lucide-react';
+import { Rocket, Activity, ChevronLeft, ChevronRight, Briefcase, Bot, BarChart3, Clock, MessageSquare, Home, Sparkles, Shield, LineChart, Webhook, Github } from 'lucide-react';
 import { SidebarSessions } from './sidebar/SidebarSessions';
 import { SidebarTokens } from './sidebar/SidebarTokens';
 import { ThemeToggle } from './ThemeToggle';
@@ -69,9 +69,14 @@ export function HomeSidebar() {
         <NavLink href="/" label="Dashboard" icon={<Home className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/workspaces" label="Workspaces" icon={<Briefcase className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/agents" label="Agents" icon={<Bot className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
+        <NavLink href="/skills" label="Skills" icon={<Sparkles className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
+        <NavLink href="/security" label="Security" icon={<Shield className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/chat" label="Chat" icon={<MessageSquare className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/sessions" label="Sessions" icon={<BarChart3 className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
+        <NavLink href="/evals" label="Evals" icon={<LineChart className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/crons" label="Crons" icon={<Clock className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
+        <NavLink href="/webhooks" label="Webhooks" icon={<Webhook className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
+        <NavLink href="/integrations/github" label="GitHub" icon={<Github className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/autopilot" label="Autopilot" icon={<Rocket className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
         <NavLink href="/activity" label="Activity" icon={<Activity className="w-4 h-4" />} collapsed={collapsed} pathname={pathname} />
       </nav>

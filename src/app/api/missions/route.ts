@@ -31,6 +31,7 @@ function shapeMission(row: MissionRow) {
     failed_subtasks: row.failed_subtasks,
     enable_pipeline: !!row.enable_pipeline,
     enable_existing_codebase: !!row.enable_existing_codebase,
+    auto_propose_enabled: (row as MissionRow & { auto_propose_enabled?: number }).auto_propose_enabled !== 0,
     codebase_path: row.codebase_path ?? null,
     git_branch: row.git_branch ?? null,
     tech_stack_hint: row.tech_stack_hint ?? null,
@@ -41,6 +42,8 @@ function shapeMission(row: MissionRow) {
     active_agents_count: row.active_agents_count ?? 0,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    completed_at: (row as MissionRow & { completed_at?: string | null }).completed_at ?? null,
+    reopened_at: (row as MissionRow & { reopened_at?: string | null }).reopened_at ?? null,
     awaiting_input_count: row.awaiting_input_count,
     active_agent_count: row.active_agent_count,
     parent_task: {
@@ -64,6 +67,24 @@ export async function GET(request: NextRequest) {
 
   try {
     const db = getDb();
+
+    // Phase 13S.9 self-heal: convoys whose stored counters say completed >= total
+    // but whose status is still 'active' are stale (the heal in
+    // updateConvoyProgress only runs on subtask state changes; missions that
+    // finished before that patch shipped, or that received auto-proposed tasks
+    // after completion, never get re-evaluated). Flip them to 'done' here so
+    // the dashboard badge matches reality. Skip 'paused'/'failed' — those are
+    // explicit operator/system states and shouldn't be auto-overwritten.
+    // Skip reopened missions too (operator moved it back to active and hasn't
+    // added new work yet) so reopen doesn't silently bounce.
+    db.prepare(`
+      UPDATE convoys
+      SET status = 'done', updated_at = ?
+      WHERE status = 'active'
+        AND total_subtasks > 0
+        AND completed_subtasks >= total_subtasks
+        AND reopened_at IS NULL
+    `).run(new Date().toISOString());
 
     const whereClause = workspaceId ? `WHERE t.workspace_id = ?` : '';
     const params = workspaceId ? [workspaceId] : [];
@@ -152,6 +173,32 @@ export async function POST(request: NextRequest) {
       subtasks: [],
     });
 
+    // Phase 13L Fix 2: every mission gets ONE canonical codebase_path. If the
+    // user passed one (existing codebase) use it; otherwise derive a stable
+    // slug under the projects root so all subtasks land in the same folder
+    // instead of one folder per subtask title.
+    //
+    // Workspace path takes precedence over the global PROJECTS_PATH env so
+    // when the user configures the office workspace to /home/wiz/Documents,
+    // missions land there instead of ~/Documents/Shared/projects.
+    let resolvedCodebasePath = input.codebase_path?.trim() || null;
+    if (!resolvedCodebasePath) {
+      const wsRow = db
+        .prepare('SELECT path FROM workspaces WHERE id = ?')
+        .get(input.workspace_id) as { path: string | null } | undefined;
+      let basePath = wsRow?.path?.trim() || '';
+      if (!basePath) {
+        const { getProjectsPath } = await import('@/lib/config');
+        basePath = getProjectsPath();
+      }
+      // Strip a trailing slash so the join produces a clean path.
+      basePath = basePath.replace(/\/+$/, '');
+      const slug = input.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'mission';
+      // Suffix with a short id to avoid collisions on identical mission names.
+      const shortId = convoy.id.slice(0, 8);
+      resolvedCodebasePath = `${basePath}/${slug}-${shortId}`;
+    }
+
     // Per Nexus flow, new missions start at mission_stage='backlog' (todo).
     // The user clicks "Start Planning" to advance → 'planning'. createConvoy
     // also flips the parent task to 'convoy_active' which we revert to 'inbox'
@@ -161,6 +208,7 @@ export async function POST(request: NextRequest) {
       SET mission_stage = 'backlog',
           enable_pipeline = ?,
           enable_existing_codebase = ?,
+          auto_propose_enabled = ?,
           codebase_path = ?,
           git_branch = ?,
           tech_stack_hint = ?,
@@ -170,7 +218,8 @@ export async function POST(request: NextRequest) {
     `).run(
       input.enable_pipeline ? 1 : 0,
       input.enable_existing_codebase ? 1 : 0,
-      input.codebase_path ?? null,
+      input.auto_propose_enabled ? 1 : 0,
+      resolvedCodebasePath,
       input.git_branch ?? null,
       input.tech_stack_hint ?? null,
       input.success_criteria ?? null,

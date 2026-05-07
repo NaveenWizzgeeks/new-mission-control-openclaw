@@ -7,8 +7,10 @@ import { ChevronLeft, Plus } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { MissionListCard, type MissionListCardData } from '@/components/MissionListCard';
 import { MissionModal } from '@/components/MissionModal';
+import { StandaloneTasksPanel } from '@/components/workspaces/StandaloneTasksPanel';
 import { SSEDebugPanel } from '@/components/SSEDebugPanel';
 import { useSSE } from '@/hooks/useSSE';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 import type { Workspace, MissionStage } from '@/lib/types';
 
 type StageFilter = 'all' | MissionStage;
@@ -72,21 +74,13 @@ export default function WorkspacePage() {
     return () => clearInterval(poll);
   }, [workspace, loadMissions]);
 
-  // Live refresh: any convoy event from the SSE stream nudges the list to
-  // re-fetch so stage transitions / deletes / new missions appear without a
-  // manual reload. (The 30s poll above is the fallback.)
-  useEffect(() => {
-    if (!workspace) return;
-    const reload = () => loadMissions(workspace.id);
-    window.addEventListener('mc:convoy_progress', reload);
-    window.addEventListener('mc:convoy_completed', reload);
-    window.addEventListener('mc:convoy_created', reload);
-    return () => {
-      window.removeEventListener('mc:convoy_progress', reload);
-      window.removeEventListener('mc:convoy_completed', reload);
-      window.removeEventListener('mc:convoy_created', reload);
-    };
-  }, [workspace, loadMissions]);
+  // Live refresh: any mission/task event nudges the list to re-fetch so
+  // stage transitions / deletes / new missions appear without a manual
+  // reload. (The 30s poll above is the fallback.) useLiveRefresh covers
+  // the canonical set: convoy_*, mission_stage_changed, task_*.
+  useLiveRefresh(useCallback(() => {
+    if (workspace) loadMissions(workspace.id);
+  }, [workspace, loadMissions]));
 
   const handleStageChange = useCallback((missionId: string, newStage: MissionStage) => {
     setMissions(prev =>
@@ -158,13 +152,15 @@ export default function WorkspacePage() {
                 <p className="text-xs text-mc-text-secondary font-mono truncate">{workspace.path}</p>
               )}
             </div>
-            <button
-              onClick={() => setShowCreateMission(true)}
-              className="flex items-center gap-2 px-4 min-h-10 bg-mc-accent text-mc-bg rounded-lg text-sm font-medium hover:bg-mc-accent/90 shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-              New Mission
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setShowCreateMission(true)}
+                className="flex items-center gap-2 px-4 min-h-10 bg-mc-accent text-mc-bg rounded-lg text-sm font-medium hover:bg-mc-accent/90"
+              >
+                <Plus className="w-4 h-4" />
+                New Mission
+              </button>
+            </div>
           </div>
 
           {/* Filter pills */}
@@ -230,6 +226,13 @@ export default function WorkspacePage() {
               ))}
             </ul>
           )}
+
+          {/* Phase 13P.2: standalone tasks under this workspace */}
+          <StandaloneTasksPanel
+            workspaceSlug={slug}
+            workspaceId={workspace.id}
+            missions={missions.map(m => ({ id: m.id, name: m.name, mission_stage: m.mission_stage }))}
+          />
         </div>
       </div>
 

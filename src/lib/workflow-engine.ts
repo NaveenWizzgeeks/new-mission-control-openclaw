@@ -305,9 +305,12 @@ export function populateTaskRolesFromAgents(taskId: string, workspaceId: string)
   const existingRoles = getTaskRoles(taskId);
   if (existingRoles.length > 0) return; // Already populated
 
-  // Get all agents in the workspace
+  // Get all agents available to this workspace — locals plus gateway-imported
+  // globals so workflow stages can map onto cross-workspace gateway agents
+  // (e.g. Fury as planner) instead of failing role lookup.
   const agents = queryAll<{ id: string; name: string; role: string }>(
-    "SELECT id, name, role FROM agents WHERE workspace_id = ? AND status != 'offline'",
+    `SELECT id, name, role FROM agents
+     WHERE (workspace_id = ? OR source = 'gateway') AND status != 'offline'`,
     [workspaceId]
   );
 

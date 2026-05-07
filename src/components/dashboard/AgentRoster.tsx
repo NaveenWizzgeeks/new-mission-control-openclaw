@@ -3,6 +3,7 @@
 import { useCallback, useState, useEffect } from 'react';
 import type { Agent } from '@/lib/types';
 import { useDataRefresh } from '@/hooks/useDataRefresh';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 const STATUS_DOT: Record<string, string> = {
   working: 'bg-mc-accent-green',
@@ -24,6 +25,7 @@ export function AgentRoster() {
 
   useEffect(() => { load(); }, [load]);
   useDataRefresh(['agents', 'workspaces'], load);
+  useLiveRefresh(load);
 
   return (
     <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5 flex flex-col h-[26rem]">

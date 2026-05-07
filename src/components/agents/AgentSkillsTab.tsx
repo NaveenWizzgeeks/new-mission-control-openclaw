@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, Trash2, Edit3, Loader2, Save, X, ToggleLeft, ToggleRight, AlertCircle } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 const SKILL_TYPES = ['shell', 'mcp', 'prompt_inject', 'file_access'] as const;
 type SkillType = typeof SKILL_TYPES[number];
@@ -33,6 +34,7 @@ const TYPE_LABEL: Record<SkillType, string> = {
 interface AgentSkillsTabProps { agentId: string }
 
 export function AgentSkillsTab({ agentId }: AgentSkillsTabProps) {
+  const confirmModal = useConfirm();
   const [skills, setSkills] = useState<AgentSkill[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null); // skill id, or 'new'
@@ -66,7 +68,12 @@ export function AgentSkillsTab({ agentId }: AgentSkillsTabProps) {
   };
 
   const remove = async (id: string, name: string) => {
-    if (!confirm(`Delete skill "${name}"?`)) return;
+    if (!await confirmModal({
+      title: `Delete skill "${name}"?`,
+      body: 'The agent will lose this capability at the next dispatch.',
+      confirmLabel: 'Delete skill',
+      danger: true,
+    })) return;
     setBusyId(id);
     try {
       const res = await fetch(`/api/skills/${id}`, { method: 'DELETE' });

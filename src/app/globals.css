@@ -1,6 +1,31 @@
+/* Phase 13M.1: syntax highlighting for chat code blocks. @import must
+   precede @tailwind / other rules per CSS spec. github-dark renders well
+   on the dark theme; light-theme overrides below. */
+@import 'highlight.js/styles/github-dark.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.theme-light .hljs {
+  background: transparent;
+  color: #24292f;
+}
+.theme-light .hljs-keyword,
+.theme-light .hljs-built_in,
+.theme-light .hljs-type { color: #cf222e; }
+.theme-light .hljs-string,
+.theme-light .hljs-attr { color: #0a3069; }
+.theme-light .hljs-number,
+.theme-light .hljs-literal { color: #0550ae; }
+.theme-light .hljs-comment { color: #6e7781; font-style: italic; }
+.theme-light .hljs-function,
+.theme-light .hljs-title { color: #8250df; }
+.theme-light .hljs-tag,
+.theme-light .hljs-name { color: #116329; }
+
+.markdown-body pre code.hljs { background: transparent !important; padding: 0 !important; }
+.markdown-body .hljs { background: transparent; }
 
 /* Theme colors as space-separated RGB triplets so Tailwind classes can
    apply opacity modifiers via `rgb(var(--name) / <alpha-value>)`. The

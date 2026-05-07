@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, Users } from 'lucide-react';
+import { ChevronLeft, Users, MessageSquare } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { MissionQueue } from '@/components/MissionQueue';
 import { LiveFeed } from '@/components/LiveFeed';
@@ -13,11 +13,13 @@ import { MissionPipelineStepper } from '@/components/mission/MissionPipelineStep
 import { MissionOverviewTab, type MissionDetail } from '@/components/mission/MissionOverviewTab';
 import { MissionTeamTab } from '@/components/mission/MissionTeamTab';
 import { MissionTestsTab } from '@/components/mission/MissionTestsTab';
+import { MissionAskFuryTab } from '@/components/mission/MissionAskFuryTab';
 import { useMissionControl } from '@/lib/store';
 import { useSSE } from '@/hooks/useSSE';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 import type { Workspace, MissionStage } from '@/lib/types';
 
-export type MissionTabKey = 'overview' | 'tasks' | 'team' | 'tests';
+export type MissionTabKey = 'overview' | 'tasks' | 'team' | 'tests' | 'ask-fury';
 type TabKey = MissionTabKey;
 
 export default function MissionDrilldownPage() {
@@ -38,7 +40,7 @@ export default function MissionDrilldownPage() {
   useEffect(() => {
     const fromHash = (): TabKey => {
       const h = window.location.hash.replace('#', '');
-      return (['overview', 'tasks', 'team', 'tests'] as const).includes(h as TabKey) ? (h as TabKey) : 'overview';
+      return (['overview', 'tasks', 'team', 'tests', 'ask-fury'] as const).includes(h as TabKey) ? (h as TabKey) : 'overview';
     };
     setTab(fromHash());
     const onHash = () => setTab(fromHash());
@@ -102,27 +104,11 @@ export default function MissionDrilldownPage() {
     return () => { cancelled = true; clearInterval(t); };
   }, [mission, missionId, loadMission]);
 
-  // Live-update the mission card when convoy/mission events arrive over SSE.
-  // useSSE() processes the global stream (which feeds the tasks store), but
-  // convoy_progress / mission_stage_changed are not currently dispatched into
-  // store updates — so the mission detail page misses stage transitions
-  // unless the user reloads. Subscribing here fills that gap.
-  useEffect(() => {
-    const onMissionEvent = (e: Event) => {
-      const evt = e as CustomEvent<{ missionId?: string; convoyId?: string; payload?: { id?: string } }>;
-      const detail = evt.detail || {};
-      const id = detail.missionId || detail.convoyId || detail.payload?.id;
-      if (!id || id === missionId) loadMission();
-    };
-    window.addEventListener('mc:convoy_progress', onMissionEvent as EventListener);
-    window.addEventListener('mc:convoy_completed', onMissionEvent as EventListener);
-    window.addEventListener('mc:convoy_created', onMissionEvent as EventListener);
-    return () => {
-      window.removeEventListener('mc:convoy_progress', onMissionEvent as EventListener);
-      window.removeEventListener('mc:convoy_completed', onMissionEvent as EventListener);
-      window.removeEventListener('mc:convoy_created', onMissionEvent as EventListener);
-    };
-  }, [missionId, loadMission]);
+  // Live-update the mission card when ANY mission/task event arrives.
+  // useSSE() processes the global stream; useLiveRefresh subscribes to the
+  // canonical re-emitted DOM events (convoy_*, mission_stage_changed,
+  // task_*). Refetch is cheap and avoids per-event payload sniffing.
+  useLiveRefresh(loadMission);
 
   useEffect(() => {
     if (!workspace) return;
@@ -237,6 +223,19 @@ export default function MissionDrilldownPage() {
           <Users className="w-3.5 h-3.5" />
           Team
         </button>
+        <button
+          onClick={() => setTabAndHash('ask-fury')}
+          aria-current={tab === 'ask-fury' ? 'page' : undefined}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shrink-0 ${
+            tab === 'ask-fury'
+              ? 'bg-mc-accent text-mc-bg'
+              : 'bg-mc-bg-tertiary text-mc-text-secondary hover:bg-mc-bg-tertiary/70 hover:text-mc-text'
+          }`}
+          title="Persistent doubts thread with Fury about this mission"
+        >
+          <MessageSquare className="w-3.5 h-3.5" />
+          Ask Fury
+        </button>
       </div>
 
       {/* Tab body */}
@@ -256,7 +255,7 @@ export default function MissionDrilldownPage() {
           <div className="flex flex-1 overflow-hidden">
             <AgentsSidebar workspaceId={workspace.id} />
             <MissionQueue workspaceId={workspace.id} convoyId={missionId} />
-            <LiveFeed />
+            <LiveFeed missionId={missionId} />
           </div>
         )}
 
@@ -274,6 +273,16 @@ export default function MissionDrilldownPage() {
           <div className="flex-1 overflow-y-auto p-6">
             <MissionTestsTab missionId={missionId} defaultCwd={mission.codebase_path} />
           </div>
+        )}
+
+        {tab === 'ask-fury' && (
+          <MissionAskFuryTab
+            missionId={missionId}
+            missionName={mission.parent_task?.title ?? mission.name}
+            missionStage={mission.mission_stage}
+            codebasePath={mission.codebase_path}
+            onProposalAccepted={loadMission}
+          />
         )}
       </div>
 

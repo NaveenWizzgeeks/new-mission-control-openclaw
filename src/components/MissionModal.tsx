@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Target, Database, GitBranch, Sparkles, Layers } from 'lucide-react';
+import { X, Target, Database, GitBranch, Sparkles, Layers, Bot } from 'lucide-react';
+import { ToggleRow } from '@/components/Toggle';
 
 interface MissionModalProps {
   workspaceId: string;
@@ -14,6 +15,7 @@ interface FormState {
   description: string;
   enable_pipeline: boolean;
   enable_existing_codebase: boolean;
+  auto_propose_enabled: boolean;
   codebase_path: string;
   git_branch: string;
   tech_stack_hint: string;
@@ -25,6 +27,7 @@ const INITIAL: FormState = {
   description: '',
   enable_pipeline: true,
   enable_existing_codebase: false,
+  auto_propose_enabled: true,
   codebase_path: '',
   git_branch: '',
   tech_stack_hint: '',
@@ -69,6 +72,7 @@ export function MissionModal({ workspaceId, onClose, onCreated }: MissionModalPr
         workspace_id: workspaceId,
         enable_pipeline: form.enable_pipeline,
         enable_existing_codebase: form.enable_existing_codebase,
+        auto_propose_enabled: form.auto_propose_enabled,
         codebase_path: form.enable_existing_codebase ? form.codebase_path.trim() : undefined,
         git_branch: form.git_branch.trim() || undefined,
         tech_stack_hint: form.tech_stack_hint.trim() || undefined,
@@ -135,7 +139,7 @@ export function MissionModal({ workspaceId, onClose, onCreated }: MissionModalPr
           <div>
             <label className="block text-sm font-medium mb-1.5">
               Description <span className="text-mc-accent-red">*</span>
-              <span className="ml-2 text-xs text-mc-text-secondary font-normal">— this feeds the planner's context, be detailed</span>
+              <span className="ml-2 text-xs text-mc-text-secondary font-normal">— this feeds the planner&apos;s context, be detailed</span>
             </label>
             <textarea
               value={form.description}
@@ -147,23 +151,33 @@ export function MissionModal({ workspaceId, onClose, onCreated }: MissionModalPr
             />
           </div>
 
-          {/* Pipeline toggle */}
-          <ToggleRow
-            icon={<Sparkles className="w-4 h-4 text-mc-accent" />}
-            label="Enable Pipeline"
-            description="Run the Fury planning pipeline (clarification + subtask generation) before work starts. Recommended."
-            checked={form.enable_pipeline}
-            onChange={(v) => set('enable_pipeline', v)}
-          />
-
-          {/* Existing codebase toggle */}
-          <ToggleRow
-            icon={<Database className="w-4 h-4 text-mc-accent-purple" />}
-            label="Existing Codebase"
-            description="Analyze a project already on disk before planning. Required if you want Fury to build on top of existing code."
-            checked={form.enable_existing_codebase}
-            onChange={(v) => set('enable_existing_codebase', v)}
-          />
+          {/* Toggles group */}
+          <div className="space-y-2">
+            <ToggleRow
+              icon={<Sparkles className="w-4 h-4" />}
+              iconAccent="text-mc-accent"
+              label="Enable Planning"
+              description="Run the Fury planning pipeline (clarification + subtask generation) before work starts. Recommended."
+              checked={form.enable_pipeline}
+              onChange={(v) => set('enable_pipeline', v)}
+            />
+            <ToggleRow
+              icon={<Bot className="w-4 h-4" />}
+              iconAccent="text-mc-accent-cyan"
+              label="Auto-Propose Follow-ups"
+              description="When all initial subtasks finish, Fury suggests new ones to keep the mission moving. Turn off to stop after the planned work."
+              checked={form.auto_propose_enabled}
+              onChange={(v) => set('auto_propose_enabled', v)}
+            />
+            <ToggleRow
+              icon={<Database className="w-4 h-4" />}
+              iconAccent="text-mc-accent-purple"
+              label="Existing Codebase"
+              description="Analyze a project already on disk before planning. Required if you want Fury to build on top of existing code."
+              checked={form.enable_existing_codebase}
+              onChange={(v) => set('enable_existing_codebase', v)}
+            />
+          </div>
 
           {/* Codebase path — only when existing codebase enabled */}
           {form.enable_existing_codebase && (
@@ -256,41 +270,3 @@ export function MissionModal({ workspaceId, onClose, onCreated }: MissionModalPr
   );
 }
 
-function ToggleRow({
-  icon,
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <label className="flex items-start gap-3 p-3 rounded-lg border border-mc-border bg-mc-bg/50 hover:border-mc-accent/40 transition-colors cursor-pointer">
-      <span className="mt-0.5 shrink-0">{icon}</span>
-      <div className="flex-1 min-w-0">
-        <span className="block text-sm font-medium">{label}</span>
-        <span className="block text-xs text-mc-text-secondary mt-0.5">{description}</span>
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className={`shrink-0 relative w-9 h-5 rounded-full transition-colors ${
-          checked ? 'bg-mc-accent' : 'bg-mc-bg-tertiary'
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-            checked ? 'translate-x-4' : 'translate-x-0.5'
-          }`}
-        />
-      </button>
-    </label>
-  );
-}

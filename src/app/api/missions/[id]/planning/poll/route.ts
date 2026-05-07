@@ -160,16 +160,16 @@ export async function POST(
 
     // If Fury emitted the final spec, materialize subtasks + flip mission stage.
     if (detectedComplete) {
-      // Single-active-mission check before flipping to in_progress
+      // Phase 13S.7: single-active-mission scoped per workspace.
       const conflict = db.prepare(`
         SELECT c.id, c.name, t.workspace_id
         FROM convoys c JOIN tasks t ON c.parent_task_id = t.id
-        WHERE c.mission_stage = 'in_progress' AND c.id != ? LIMIT 1
-      `).get(id) as { id: string; name: string; workspace_id: string } | undefined;
+        WHERE c.mission_stage = 'in_progress' AND c.id != ? AND t.workspace_id = ? LIMIT 1
+      `).get(id, parent.workspace_id) as { id: string; name: string; workspace_id: string } | undefined;
       if (conflict) {
         return NextResponse.json(
           {
-            error: 'Fury wants to start work but another mission is already in progress.',
+            error: 'Fury wants to start work but another mission in this workspace is already in progress.',
             code: 'mission_in_progress_conflict',
             conflicting_mission: conflict,
           },
@@ -181,6 +181,7 @@ export async function POST(
         title: s.title.trim().slice(0, 500),
         description: (s.description || '').trim().slice(0, 10_000),
         agent_id: s.agent_role ? resolveAgentForRole(s.agent_role, parent.workspace_id) ?? undefined : undefined,
+        requires_planning: !!s.needs_planning,
       }));
 
       const created = subtaskInputs.length > 0 ? addSubtasks(id, subtaskInputs) : [];

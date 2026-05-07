@@ -1,15 +1,21 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import { JetBrains_Mono } from 'next/font/google';
+import localFont from 'next/font/local';
 import DemoBanner from '@/components/DemoBanner';
 import { ToastProvider } from '@/components/Toast';
 import { ChatProvider } from '@/components/chat/ChatProvider';
+import { ConfirmProvider } from '@/components/ConfirmDialog';
 
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
+// Self-host JetBrains Mono so dev/prod don't depend on fonts.googleapis.com.
+// The previous next/font/google setup spammed warnings and rendered the
+// fallback whenever the dev box was offline. The woff2 below is the latin
+// subset; weights 500/600/700 are synthesized by the browser, which is fine
+// for monospace UI chrome.
+const jetbrainsMono = localFont({
+  src: '../../public/fonts/JetBrainsMono-Latin.woff2',
   variable: '--font-jetbrains-mono',
-  weight: ['400', '500', '600', '700'],
   display: 'swap',
+  weight: '400 700',
 });
 
 export const metadata: Metadata = {
@@ -46,12 +52,14 @@ export default function RootLayout({
       </head>
       <body className={`${jetbrainsMono.className} bg-mc-bg text-mc-text h-screen overflow-hidden flex flex-col`}>
         <ToastProvider>
-          <DemoBanner />
-          <ChatProvider>
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              {children}
-            </div>
-          </ChatProvider>
+          <ConfirmProvider>
+            <DemoBanner />
+            <ChatProvider>
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                {children}
+              </div>
+            </ChatProvider>
+          </ConfirmProvider>
         </ToastProvider>
       </body>
     </html>
